@@ -36,8 +36,53 @@ st.markdown("""
   animation: glowPulse 1.2s ease-in-out infinite !important;
 }
 [data-testid="stSpinner"] > div::before { content: "⏳ LOADING — "; letter-spacing: .1em; }
+/* compact help popover button beside metric labels */
+[data-testid="stPopover"] > button {
+  border: none !important; background: transparent !important;
+  padding: 0 .15rem !important; margin-top: .55rem; font-size: .9rem;
+}
 </style>
 """, unsafe_allow_html=True)
+
+MODEL_EXPLAINER_MD = """
+**In one sentence:** the model starts from the sportsbooks' own odds — the market is the
+single best predictor of NFL games — then nudges that number with our Elo ratings and a few
+backtest-proven adjustments, and only flags value when the gap between model and market is
+big enough to beat the vig.
+
+---
+
+**How it works, in detail:**
+
+**1. Market base (85% of the prediction).** Every book's moneyline implies a win probability
+with the vig (their cut) baked in. We strip the vig from every book, take the median across
+books, and use that as the "true" consensus. We tested the alternative: a pure stats model
+(Elo) against the closing line went **51.1% ATS over 1,359 games — below the 52.4% needed
+to break even at -110**. So the market leads; we don't fight it.
+
+**2. Elo prior (15%).** FiveThirtyEight-style ratings updated game-by-game since 1999, with
+margin-of-victory multipliers and offseason regression. Backtest: 62.9% straight-up win
+accuracy. Its job: sanity-check the market and carry predictions before lines post.
+
+**3. Backtest-validated adjustments (capped ±2.5 pts).** Only adjustments that proved
+themselves against 5 years of closing lines are allowed in:
+- *Injuries* — a starting QB Out moves the number ~5.5 pts; other starters ~0.4 each
+- *Rest fade* — teams with 3+ extra rest days covered only 47% (the market overprices rest),
+  so we shave half a point off the rested side
+
+**4. Totals model.** Market total plus validated adjustments (capped ±3.5): wind 15+ mph
+(−2.7), wind 10-14 (−1.2), close spread ≤3 (−1.3), blowout setup 7+ (+0.8), early season
+(−1.0), extreme-under referees (−0.5 to −1.0).
+
+**5. Edge → probability → money.** Model vs market gap becomes a cover probability
+(NFL scoring margins are roughly normal, SD ≈ 13.3), then **EV%** at standard -110 odds,
+then a **¼-Kelly** stake suggestion. If the edge is smaller than the vig, the app literally
+says "no bet" — most games are.
+
+**Honesty clause:** every angle badge shows its real 2021-25 record next to it, and the
+📒 Bet Journal grades the model's picks against closing lines all season. If it stops
+working, the numbers will say so.
+"""
 
 st.title("🏈 NFL Edge Finder")
 st.caption("Predictor (sides+totals) • Props • SGP • Lines • Form • H2H (5y) • Injuries — click any game to expand")
@@ -302,7 +347,12 @@ def predictor_tab(g, away, home):
     if pred["mode"] == "elo-only":
         st.info("No market lines posted yet — showing Elo-only estimate (edges compute once books post).")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("🤖 Model line", fmt_spread(pred["model_spread"], home, away))
+    with c1:
+        mcol, icol = st.columns([5, 1])
+        mcol.metric("🤖 Model line", fmt_spread(pred["model_spread"], home, away))
+        with icol:
+            with st.popover("❓", help="Explain the Model"):
+                st.markdown(MODEL_EXPLAINER_MD)
     if pred.get("market_spread") is not None:
         src = f"{pred['n_books']} book(s)" if pred["n_books"] else "nflverse current line"
         c2.metric("📚 Market", fmt_spread(pred["market_spread"], home, away), src)
