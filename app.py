@@ -3,6 +3,8 @@
 Run:  streamlit run app.py
 """
 
+import os
+
 import pandas as pd
 import streamlit as st
 
@@ -55,8 +57,21 @@ season, week = dl.current_season_week(games)
 season = st.sidebar.number_input("Season", 2020, 2030, season)
 weeks = sorted(games[(games["season"] == season) & (games["game_type"] == "REG")]["week"].unique())
 week = st.sidebar.selectbox("Week", weeks, index=weeks.index(week) if week in weeks else 0)
-api_key = st.sidebar.text_input("The Odds API key (optional)", type="password",
+KEY_FILE = os.path.join(dl.CACHE, "odds_api_key.txt")
+try:
+    with open(KEY_FILE) as _f:
+        saved_key = _f.read().strip()
+except Exception:
+    saved_key = ""
+api_key = st.sidebar.text_input("The Odds API key (optional)", value=saved_key, type="password",
                                 help="Free key at the-odds-api.com -> multi-book lines + line shopping")
+if api_key and api_key.strip() != saved_key:
+    try:
+        with open(KEY_FILE, "w") as _f:
+            _f.write(api_key.strip())
+        st.sidebar.success("Key saved to disk — persists across restarts")
+    except Exception:
+        pass
 if st.sidebar.button("🔄 Refresh live data"):
     import glob
     import os
