@@ -17,6 +17,28 @@ import sgp
 import weather as wx
 
 st.set_page_config(page_title="NFL Edge Finder", page_icon="🏈", layout="wide")
+
+st.markdown("""
+<style>
+@keyframes glowPulse {
+  0%, 100% { opacity: .65; text-shadow: 0 0 4px #7cffb2, 0 0 10px #7cffb2; }
+  50%      { opacity: 1;   text-shadow: 0 0 14px #7cffb2, 0 0 30px #39ff88; }
+}
+/* replace spinner icons with glowing LOADING text */
+[data-testid="stSpinner"] svg,
+[data-testid="stSpinner"] .st-emotion-cache-spinner,
+[data-testid="stStatusWidget"] svg { display: none !important; }
+[data-testid="stSpinner"] > div,
+[data-testid="stStatusWidget"] {
+  font-weight: 700 !important;
+  letter-spacing: .22em !important;
+  color: #7cffb2 !important;
+  animation: glowPulse 1.2s ease-in-out infinite !important;
+}
+[data-testid="stSpinner"] > div::before { content: "⏳ LOADING — "; letter-spacing: .1em; }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🏈 NFL Edge Finder")
 st.caption("Predictor (sides+totals) • Props • SGP • Lines • Form • H2H (5y) • Injuries — click any game to expand")
 
