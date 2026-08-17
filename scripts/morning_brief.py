@@ -11,9 +11,9 @@ sys.path.insert(0, "/Users/jeff/nfl-edge")
 os.environ.pop("PYTHONPATH", None)
 
 import pandas as pd
+
 import data as dl
 import predictor as pr
-import analytics as an
 import weather as wx
 
 SNAP_LINES = os.path.join(dl.CACHE, "snap_lines.json")

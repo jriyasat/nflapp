@@ -7,9 +7,7 @@ Method (transparent v1):
   proj   = base * opp
 """
 
-import math
 
-import pandas as pd
 
 HALFLIFE = 6.0
 MIN_GAMES = {"QB": 4, "RB": 4, "WR": 4, "TE": 4}
@@ -62,8 +60,7 @@ def defense_multipliers(ps):
 def _norm(name):
     n = str(name).lower().replace(".", "").replace(",", "")
     for suf in (" jr", " sr", " iii", " ii", " iv"):
-        if n.endswith(suf):
-            n = n[: -len(suf)]
+        n = n.removesuffix(suf)
     return n.strip()
 
 

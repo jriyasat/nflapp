@@ -2,8 +2,10 @@
 Validates each 'blend' module before it goes into the predictor."""
 
 import sys
+
 sys.path.insert(0, "/Users/jeff/nfl-edge")
 import pandas as pd
+
 import data as dl
 
 df = dl.load_games()
@@ -48,6 +50,7 @@ print(f"{'Divisional dog cover rate':44s} n={len(dog_covers):4d}  {dog_covers.me
 
 print("\n=== BODY CLOCK (West away team, early ET window) ===")
 import analytics as an
+
 tz = an.TEAM_TZ
 g["away_tz"] = g["away_team"].map(tz).map(an.TZ_RANK)
 g["home_tz"] = g["home_team"].map(tz).map(an.TZ_RANK)

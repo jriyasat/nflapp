@@ -33,14 +33,22 @@ def _fresh(path, max_age_sec):
     return os.path.exists(path) and (time.time() - os.path.getmtime(path)) < max_age_sec
 
 
+_MEMO = {}
+
+
 def load_games():
-    """Full nflverse schedule/results table, cached 12h. Derived ATS/O-U columns added."""
+    """Full nflverse schedule/results table, cached 12h on disk; memoized in
+    memory by file mtime so repeat calls in one process are free.
+    Derived ATS/O-U columns added."""
     path = os.path.join(CACHE, "games.csv")
     if not _fresh(path, GAMES_CACHE_H * 3600):
         r = requests.get(GAMES_URL, timeout=60)
         r.raise_for_status()
         with open(path, "wb") as f:
             f.write(r.content)
+    mt = os.path.getmtime(path)
+    if _MEMO.get("games_mt") == mt:
+        return _MEMO["games"]
     df = pd.read_csv(path, low_memory=False)
     for col in ["away_score", "home_score", "spread_line", "total_line",
                 "away_rest", "home_rest", "away_moneyline", "home_moneyline"]:
@@ -54,6 +62,8 @@ def load_games():
     df.loc[played, "ou_result"] = df.loc[played].apply(
         lambda r: "PUSH" if r["total"] == r["total_line"]
         else ("OVER" if r["total"] > r["total_line"] else "UNDER"), axis=1)
+    _MEMO["games"] = df
+    _MEMO["games_mt"] = mt
     return df
 
 
@@ -135,7 +145,11 @@ def espn_week_odds(season, week, seasontype=2):
 
 
 def espn_injuries():
-    """Latest injury report: {TEAM_ABBR: [ {name, position, status, detail} ] }"""
+    """Latest injury report: {TEAM_ABBR: [ {name, position, status, detail} ] }.
+    Parsed result memoized by cache-file mtime (the raw JSON is ~9MB)."""
+    cache_path = os.path.join(CACHE, "espn_injuries.json")
+    if os.path.exists(cache_path) and _MEMO.get("inj_mt") == os.path.getmtime(cache_path):
+        return _MEMO["inj"]
     data = _get_json(ESPN_INJURIES, "espn_injuries.json", 360)
     out = {}
     for block in data.get("injuries", []):
@@ -150,6 +164,9 @@ def espn_injuries():
                 "comment": inj.get("shortComment", ""),
             })
         out[team] = rows
+    if os.path.exists(cache_path):
+        _MEMO["inj"] = out
+        _MEMO["inj_mt"] = os.path.getmtime(cache_path)
     return out
 
 

@@ -1,7 +1,9 @@
 """Empirical SGP leg-correlation analysis on 2024-2025 weekly data."""
 import sys
+
 sys.path.insert(0, "/Users/jeff/nfl-edge")
 import pandas as pd
+
 import data as dl
 
 ps = dl.load_player_stats()

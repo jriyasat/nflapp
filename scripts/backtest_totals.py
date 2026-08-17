@@ -1,7 +1,7 @@
 """Totals angles backtest vs closing totals, 2021-2025."""
 import sys
+
 sys.path.insert(0, "/Users/jeff/nfl-edge")
-import pandas as pd
 import data as dl
 
 df = dl.load_games()
@@ -14,7 +14,7 @@ def rate(mask, label):
     sub = g[mask]
     if len(sub) < 30:
         print(f"{label:44s} n={len(sub):4d} (too few)")
-        return None
+        return
     pct = sub["over"].mean() * 100
     edge = pct - 52.4
     mark = "  <-- real signal" if abs(edge) > 4 else ""

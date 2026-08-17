@@ -4,6 +4,7 @@ Validated angle (2021-25, n=87): outdoor games with wind >= 15mph went UNDER
 at 60.9%. Forecasts reach 16 days out; kickoff-hour wind is what matters.
 """
 
+import hashlib
 import json
 import os
 import time
@@ -53,7 +54,8 @@ def kickoff_wind(stadium, gameday, gametime):
     if not coords or pd.isna(gameday):
         return None
     day = gameday.strftime("%Y-%m-%d")
-    safe = f"wx_{abs(hash((stadium, day))) % 10**8}.json"
+    key = hashlib.md5(f"{stadium}|{day}".encode()).hexdigest()[:12]
+    safe = f"wx_{key}.json"
     path = os.path.join(dl.CACHE, safe)
     if os.path.exists(path) and time.time() - os.path.getmtime(path) < CACHE_H * 3600:
         data = json.load(open(path))

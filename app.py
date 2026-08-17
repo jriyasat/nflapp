@@ -8,10 +8,10 @@ import streamlit as st
 
 import analytics as an
 import data as dl
+import journal
 import predictor as pr
 import props_model as pm
 import sgp
-import journal
 import weather as wx
 
 st.set_page_config(page_title="NFL Edge Finder", page_icon="🏈", layout="wide")
@@ -38,6 +38,17 @@ except Exception:
 
 ABBR_TO_NAME = {v: k for k, v in dl.TEAM_NAME_TO_ABBR.items()}
 
+@st.cache_data(ttl=3600)
+def get_projections(team, opp, inj_items):
+    """Memoized per-matchup projections (the heaviest per-rerun compute).
+    inj_items: tuple(sorted(injuries.items())) for hashability."""
+    return pm.project_game(player_stats, def_mults, team, opp, injuries=dict(inj_items))
+
+def team_inj_map(team):
+    m = {r["name"]: r["status"]
+         for r in (nv_injuries.get(team) or {}).get("rows", []) if r.get("status")}
+    return tuple(sorted(m.items()))
+
 # ---------------- sidebar ----------------
 st.sidebar.header("Controls")
 season, week = dl.current_season_week(games)
@@ -47,7 +58,8 @@ week = st.sidebar.selectbox("Week", weeks, index=weeks.index(week) if week in we
 api_key = st.sidebar.text_input("The Odds API key (optional)", type="password",
                                 help="Free key at the-odds-api.com -> multi-book lines + line shopping")
 if st.sidebar.button("🔄 Refresh live data"):
-    import os, glob
+    import glob
+    import os
     for f in glob.glob(os.path.join(dl.CACHE, "espn_*.json")) + glob.glob(os.path.join(dl.CACHE, "odds_api.json")):
         os.remove(f)
     st.rerun()
@@ -310,9 +322,7 @@ def props_tab(g, away, home):
     lines = st.session_state.get(f"props_{away}_{home}", {})
     for team, opp in ((away, home), (home, away)):
         st.markdown(f"**{team}** (vs {opp})")
-        team_inj = {r["name"]: r["status"]
-                    for r in (nv_injuries.get(team) or {}).get("rows", []) if r.get("status")}
-        res = pm.project_game(player_stats, def_mults, team, opp, injuries=team_inj)
+        res = get_projections(team, opp, team_inj_map(team))
         for w in res["warnings"]:
             st.error(w)
         if res["benched"]:
@@ -341,7 +351,7 @@ def props_tab(g, away, home):
     if lines:
         st.caption("Format: **projection | line lean ±edge (%)** — 🟢 = edge ≥8%. Lines = median across books.")
     elif api_key:
-        if st.button(f"📡 Load live prop lines (~4 API credits)", key=f"loadprops_{away}_{home}"):
+        if st.button("📡 Load live prop lines (~4 API credits)", key=f"loadprops_{away}_{home}"):
             with st.spinner("Fetching props from The Odds API..."):
                 try:
                     fetched = dl.odds_api_event_props(api_key, ABBR_TO_NAME[away], ABBR_TO_NAME[home])
@@ -362,9 +372,7 @@ def sgp_tab(g, away, home):
     pred = pr.predict_game(g, elo, books_by_abbr.get(key), espn_odds.get(key), nv_injuries)
     projs = []
     for team, opp in ((away, home), (home, away)):
-        team_inj = {r["name"]: r["status"]
-                    for r in (nv_injuries.get(team) or {}).get("rows", []) if r.get("status")}
-        res = pm.project_game(player_stats, def_mults, team, opp, injuries=team_inj)
+        res = get_projections(team, opp, team_inj_map(team))
         projs += pm.edges_vs_lines(res["players"], lines)
     legs = sgp.build_legs(projs, pred, home, away)
     if not legs:

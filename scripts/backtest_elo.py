@@ -1,8 +1,11 @@
 """Elo baseline backtest vs closing lines, 2021-2025."""
 import sys
+
 sys.path.insert(0, "/Users/jeff/nfl-edge")
 import math
+
 import pandas as pd
+
 import data as dl
 
 K = 20.0
@@ -52,6 +55,7 @@ bt["home_spread_mkt"] = -bt["spread_line"]  # home perspective, neg = home favor
 bt["logit"] = bt["p_home"].apply(lambda p: math.log(p / (1 - p)))
 # linear fit: home_spread ~ a * logit + b
 import numpy as np
+
 A = np.vstack([bt["logit"], np.ones(len(bt))]).T
 a, b = np.linalg.lstsq(A, bt["home_spread_mkt"], rcond=None)[0]
 print(f"spread map: home_spread = {a:.2f} * logit(p) + {b:.2f}")
