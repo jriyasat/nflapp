@@ -16,7 +16,7 @@ import weather as wx
 
 st.set_page_config(page_title="NFL Edge Finder", page_icon="🏈", layout="wide")
 st.title("🏈 NFL Edge Finder")
-st.caption("Predictor • Lines • H2H history (5y) • Recent form (ATS/O-U) • Situational spots • Injuries")
+st.caption("Predictor (sides+totals) • Props • SGP • Lines • Form • H2H (5y) • Injuries — click any game to expand")
 
 games = dl.load_games()
 
@@ -399,11 +399,11 @@ def sgp_tab(g, away, home):
                "correlation too, so compare before betting. Lift ≠ guaranteed edge.")
 
 # ---------------- main loop ----------------
-for _, g in week_games.iterrows():
+for gi, (_, g) in enumerate(week_games.iterrows()):
     away, home = g["away_team"], g["home_team"]
     day = g["gameday"].strftime("%a %b %d") if pd.notna(g["gameday"]) else ""
     label = f"{away} @ {home}  •  {day} {g.get('gametime', '')} ET"
-    with st.expander(label, expanded=False):
+    with st.expander(label, expanded=(gi == 0)):
         spots = an.situational_spots(games, g)
         if pd.notna(g["gameday"]) and g["gameday"] <= pd.Timestamp.now() + pd.Timedelta(days=15):
             mph, wflag = wx.wind_for_game(g)
