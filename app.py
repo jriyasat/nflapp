@@ -366,14 +366,21 @@ def props_tab(g, away, home):
     if lines:
         st.caption("Format: **projection | line lean ±edge (%)** — 🟢 = edge ≥8%. Lines = median across books.")
     elif api_key:
-        if st.button("📡 Load live prop lines (~4 API credits)", key=f"loadprops_{away}_{home}"):
+        if st.button(f"📡 Load live prop lines (~4 API credits)", key=f"loadprops_{away}_{home}"):
             with st.spinner("Fetching props from The Odds API..."):
                 try:
                     fetched = dl.odds_api_event_props(api_key, ABBR_TO_NAME[away], ABBR_TO_NAME[home])
-                    st.session_state[f"props_{away}_{home}"] = fetched
-                    st.rerun()
+                    if fetched:
+                        st.session_state[f"props_{away}_{home}"] = fetched
+                        st.rerun()
+                    else:
+                        st.session_state[f"props_none_{away}_{home}"] = True
+                        st.warning("No player props posted for this game yet — books usually hang "
+                                   "them a few days before kickoff. Check back then.")
                 except Exception as e:
                     st.error(f"Props fetch failed: {e}")
+        if st.session_state.get(f"props_none_{away}_{home}"):
+            st.caption("Last check: props not on the board yet.")
     else:
         st.caption("Add your Odds API key in the sidebar to compare projections against live prop lines.")
 
