@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 import analytics as an
+import auth_setup
 import data as dl
 import journal
 import predictor as pr
@@ -88,6 +89,15 @@ working, the numbers will say so.
 st.title("🏈 NFL Edge Finder")
 st.caption("Predictor (sides+totals) • Props • SGP • Lines • Form • H2H (5y) • Injuries — click any game to expand")
 
+# ---------------- auth gate ----------------
+authenticator = auth_setup.get_authenticator()
+if st.session_state.get("authentication_status") is not True:
+    authenticator.login(location="main")
+if st.session_state.get("authentication_status") is not True:
+    st.stop()
+USER = st.session_state.get("username", "jeff")
+NAME = st.session_state.get("name", USER)
+
 games = dl.load_games()
 
 @st.cache_resource
@@ -121,6 +131,8 @@ def team_inj_map(team):
 
 # ---------------- sidebar ----------------
 st.sidebar.header("Controls")
+st.sidebar.markdown(f"👤 **{NAME}**")
+authenticator.logout("🚪 Log out", "sidebar")
 season, week = dl.current_season_week(games)
 season = st.sidebar.number_input("Season", 2020, 2030, season)
 weeks = sorted(games[(games["season"] == season) & (games["game_type"] == "REG")]["week"].unique())
@@ -131,6 +143,10 @@ try:
         saved_key = _f.read().strip()
 except Exception:
     saved_key = ""
+try:
+    saved_key = st.secrets.get("ODDS_API_KEY", saved_key)  # house key on cloud
+except Exception:
+    pass
 api_key = st.sidebar.text_input("The Odds API key (optional)", value=saved_key, type="password",
                                 help="Free key at the-odds-api.com -> multi-book lines + line shopping")
 if api_key and api_key.strip() != saved_key:
@@ -194,7 +210,8 @@ page = st.sidebar.radio("View", ["Games", "📒 Bet Journal", "📈 Track Record
 # ---------------- bet journal page ----------------
 def journal_page():
     st.header("📒 Bet Journal + CLV Tracker")
-    bets = journal.settle(journal.load_bets(), games)
+    st.caption(f"Private journal of **{NAME}** — only you can see this.")
+    bets = journal.settle(journal.load_bets(USER), games, USER)
     s = journal.summary(bets)
     c = st.columns(5)
     c[0].metric("Record", s.get("record", "0-0-0"))
@@ -233,7 +250,7 @@ def journal_page():
                 "date": pd.Timestamp.now().strftime("%Y-%m-%d"), "season": season,
                 "week": int(pick.split("(W")[1].rstrip(")")), "game": glabel,
                 "bet_type": btype, "selection": sel, "line": line, "odds": odds,
-                "stake": stake, "book": book})
+                "stake": stake, "book": book}, USER)
             st.success("Saved. CLV fills in at kickoff; grade lands after the final.")
             st.rerun()
 
@@ -245,7 +262,7 @@ def journal_page():
                      hide_index=True, width="stretch")
         del_id = st.selectbox("Delete a bet (by id)", [""] + bets["id"].tolist())
         if del_id and st.button("🗑️ Delete"):
-            journal.delete_bet(del_id)
+            journal.delete_bet(del_id, USER)
             st.rerun()
 
 if page == "📒 Bet Journal":

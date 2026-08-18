@@ -1,42 +1,23 @@
 """Model prediction tracker: logs model picks (|edge| >= 2) and grades them
-against the CLOSING line. Storage: data/predictions.csv.
-
-Pick rules:
-- spread: |model_spread - market_spread| >= 2 -> pick = the side the model likes
-- total:  |model_total - market_total| >= 2  -> pick = OVER/UNDER
-Grading (at close): did the picked side cover the closing spread / closing total?
-Profit: flat 1u at -110 (+0.909 / -1 / 0).
-"""
-
-import os
-import uuid
+against the CLOSING line. Storage: SQLite via db.py (global, shared)."""
 
 import pandas as pd
 
 import data as dl
+import db
 import predictor as pr
 
-PICKS_PATH = os.path.join(dl.CACHE, "predictions.csv")
+PICKS_PATH = db.DB_PATH  # backwards-compat reference
 EDGE_MIN = 2.0
-COLUMNS = ["id", "logged_at", "season", "week", "game", "pick_type", "side",
-           "model_val", "market_val_log", "edge_log", "p_cover_log",
-           "closing_line", "grade", "profit"]
 
 
 def load_picks():
-    if os.path.exists(PICKS_PATH):
-        return pd.read_csv(PICKS_PATH)
-    return pd.DataFrame(columns=COLUMNS)
-
-
-def _save(df):
-    df.to_csv(PICKS_PATH, index=False)
+    return db.load_picks()
 
 
 def log_predictions(games, elo, season, week, books_by_abbr=None, quiet=True):
-    """Log new picks for a week (deduped by game+pick_type). Returns new pick count."""
-    picks = load_picks()
-    existing = set(zip(picks["game"], picks["pick_type"])) if len(picks) else set()
+    """Log new picks for a week (deduped by game+pick_type). Returns new count."""
+    existing = db.existing_pick_keys()
     wk = games[(games["season"] == season) & (games["game_type"] == "REG")
                & (games["week"] == week)]
     books_by_abbr = books_by_abbr or {}
@@ -72,14 +53,10 @@ def log_predictions(games, elo, season, week, books_by_abbr=None, quiet=True):
         for r in rows:
             if (label, r["pick_type"]) in existing:
                 continue
-            picks = pd.concat([picks, pd.DataFrame([{
-                "id": uuid.uuid4().hex[:8], "logged_at": now, "season": season,
-                "week": week, "game": label, **r,
-                "closing_line": None, "grade": "pending", "profit": None,
-            }])], ignore_index=True)
+            db.insert_pick({"logged_at": now, "season": season, "week": week,
+                            "game": label, **r})
+            existing.add((label, r["pick_type"]))
             new += 1
-    if new:
-        _save(picks)
     if not quiet:
         print(f"logged {new} new picks for {season} W{week}")
     return new
@@ -87,11 +64,8 @@ def log_predictions(games, elo, season, week, books_by_abbr=None, quiet=True):
 
 def grade_predictions(games):
     """Grade pending picks whose games have results. Returns updated df."""
-    picks = load_picks()
-    if not len(picks):
-        return picks
-    changed = False
-    for i, p in picks.iterrows():
+    picks = db.load_picks()
+    for _, p in picks.iterrows():
         if p["grade"] != "pending":
             continue
         season, week, label = int(p["season"]), int(p["week"]), p["game"]
@@ -102,27 +76,24 @@ def grade_predictions(games):
         if m.empty or pd.isna(m.iloc[0]["result"]):
             continue
         g = m.iloc[0]
-        changed = True
         if p["pick_type"] == "spread":
             if pd.isna(g["spread_line"]):
                 continue
-            picks.at[i, "closing_line"] = g["spread_line"] if p["side"] == away else -g["spread_line"]
+            closing = g["spread_line"] if p["side"] == away else -g["spread_line"]
             margin = g["result"] if p["side"] == home else -g["result"]
-            diff = margin + picks.at[i, "closing_line"]
+            diff = margin + closing
         else:
             if pd.isna(g["total_line"]):
                 continue
-            picks.at[i, "closing_line"] = g["total_line"]
+            closing = g["total_line"]
             diff = (g["total"] - g["total_line"]) * (1 if p["side"] == "over" else -1)
         if diff > 0:
-            picks.at[i, "grade"], picks.at[i, "profit"] = "won", 100 / 110
+            db.grade_pick(p["id"], float(closing), "won", 100 / 110)
         elif diff < 0:
-            picks.at[i, "grade"], picks.at[i, "profit"] = "lost", -1.0
+            db.grade_pick(p["id"], float(closing), "lost", -1.0)
         else:
-            picks.at[i, "grade"], picks.at[i, "profit"] = "push", 0.0
-    if changed:
-        _save(picks)
-    return picks
+            db.grade_pick(p["id"], float(closing), "push", 0.0)
+    return db.load_picks()
 
 
 def summary(picks):
