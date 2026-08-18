@@ -191,3 +191,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    os._exit(0)  # libsql client threads can hang interpreter shutdown

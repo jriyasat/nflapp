@@ -25,24 +25,91 @@ _PICKS_COLS = ["id", "logged_at", "season", "week", "game", "pick_type", "side",
                "model_val", "market_val_log", "edge_log", "p_cover_log",
                "closing_line", "grade", "profit"]
 
+_TURSO_CLIENT = None
+_TURSO_SCHEMA_DONE = False
+
+
+def _turso_cfg():
+    """Turso credentials from env or .streamlit/secrets.toml. Returns (url, token)."""
+    url = os.environ.get("NFL_EDGE_TURSO_URL")
+    token = os.environ.get("NFL_EDGE_TURSO_TOKEN")
+    if not (url and token):
+        try:
+            import tomllib
+            sp = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              ".streamlit", "secrets.toml")
+            if os.path.exists(sp):
+                with open(sp, "rb") as f:
+                    s = tomllib.load(f)
+                url = url or s.get("NFL_EDGE_TURSO_URL")
+                token = token or s.get("NFL_EDGE_TURSO_TOKEN")
+        except Exception:
+            pass
+    if url and token:
+        return url.replace("libsql://", "https://"), token
+    return None, None
+
+
+class _TursoCursor:
+    def __init__(self, rs):
+        self._rows = rs.rows
+
+    def fetchall(self):
+        return [tuple(r) for r in self._rows]
+
+    def fetchone(self):
+        return tuple(self._rows[0]) if self._rows else None
+
+
+class _TursoConn:
+    """sqlite3-shaped adapter over libsql_client (shared underlying client)."""
+
+    def __init__(self, client):
+        self._c = client
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass  # shared client; never close per-call
+
+    def execute(self, sql, params=()):
+        return _TursoCursor(self._c.execute(sql, params))
+
+
+_SCHEMA = ["""CREATE TABLE IF NOT EXISTS bets (
+    id TEXT PRIMARY KEY, user TEXT NOT NULL, date TEXT, season INT, week INT,
+    game TEXT, bet_type TEXT, selection TEXT, line REAL, odds REAL,
+    stake REAL, book TEXT, status TEXT DEFAULT 'pending',
+    profit REAL, clv REAL)""",
+    """CREATE TABLE IF NOT EXISTS predictions (
+    id TEXT PRIMARY KEY, logged_at TEXT, season INT, week INT, game TEXT,
+    pick_type TEXT, side TEXT, model_val REAL, market_val_log REAL,
+    edge_log REAL, p_cover_log REAL, closing_line REAL,
+    grade TEXT DEFAULT 'pending', profit REAL,
+    UNIQUE(game, pick_type))""",
+    "CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user)",
+    """CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY, name TEXT, email TEXT,
+    level TEXT DEFAULT 'user', pw_hash TEXT, created_at TEXT)"""]
+
 
 def _connect():
+    url, token = _turso_cfg()
+    if url:
+        global _TURSO_CLIENT, _TURSO_SCHEMA_DONE
+        if _TURSO_CLIENT is None:
+            import libsql_client
+            _TURSO_CLIENT = libsql_client.create_client_sync(url, auth_token=token)
+        conn = _TursoConn(_TURSO_CLIENT)
+        if not _TURSO_SCHEMA_DONE:
+            for stmt in _SCHEMA:
+                conn.execute(stmt)
+            _TURSO_SCHEMA_DONE = True
+        return conn
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("""CREATE TABLE IF NOT EXISTS bets (
-        id TEXT PRIMARY KEY, user TEXT NOT NULL, date TEXT, season INT, week INT,
-        game TEXT, bet_type TEXT, selection TEXT, line REAL, odds REAL,
-        stake REAL, book TEXT, status TEXT DEFAULT 'pending',
-        profit REAL, clv REAL)""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS predictions (
-        id TEXT PRIMARY KEY, logged_at TEXT, season INT, week INT, game TEXT,
-        pick_type TEXT, side TEXT, model_val REAL, market_val_log REAL,
-        edge_log REAL, p_cover_log REAL, closing_line REAL,
-        grade TEXT DEFAULT 'pending', profit REAL,
-        UNIQUE(game, pick_type))""")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user)")
-    conn.execute("""CREATE TABLE IF NOT EXISTS users (
-        username TEXT PRIMARY KEY, name TEXT, email TEXT,
-        level TEXT DEFAULT 'user', pw_hash TEXT, created_at TEXT)""")
+    for stmt in _SCHEMA:
+        conn.execute(stmt)
     return conn
 
 
