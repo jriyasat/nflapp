@@ -40,6 +40,9 @@ def _connect():
         grade TEXT DEFAULT 'pending', profit REAL,
         UNIQUE(game, pick_type))""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY, name TEXT, email TEXT,
+        level TEXT DEFAULT 'user', pw_hash TEXT, created_at TEXT)""")
     return conn
 
 
@@ -80,7 +83,46 @@ def migrate_legacy():
 migrate_legacy()
 
 
-# ---------------- bets (per-user) ----------------
+# ---------------- users (admin-managed) ----------------
+def list_users():
+    with _connect() as c:
+        rows = c.execute(
+            "SELECT username, name, email, level, created_at FROM users ORDER BY created_at"
+        ).fetchall()
+    return [{"username": u, "name": n, "email": e, "level": l, "created_at": t}
+            for u, n, e, l, t in rows]
+
+
+def add_user(username, name, email, level, pw_hash):
+    with _connect() as c:
+        c.execute("INSERT OR REPLACE INTO users (username, name, email, level, pw_hash, created_at)"
+                  " VALUES (?,?,?,?,?,?)",
+                  (username, name, email, level, pw_hash,
+                   pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")))
+
+
+def delete_user(username):
+    with _connect() as c:
+        c.execute("DELETE FROM users WHERE username=?", (username,))
+
+
+def set_password(username, pw_hash):
+    with _connect() as c:
+        c.execute("UPDATE users SET pw_hash=? WHERE username=?", (pw_hash, username))
+
+
+def user_level(username):
+    with _connect() as c:
+        r = c.execute("SELECT level FROM users WHERE username=?", (username,)).fetchone()
+    return r[0] if r else "user"
+
+
+def auth_credentials():
+    """streamlit-authenticator credentials dict built from the users table."""
+    with _connect() as c:
+        rows = c.execute("SELECT username, name, email, pw_hash FROM users").fetchall()
+    return {"usernames": {u: {"name": n, "email": e, "password": h}
+                          for u, n, e, h in rows}}
 def load_bets(user):
     with _connect() as c:
         rows = c.execute(f"SELECT {','.join(_BETS_COLS)} FROM bets WHERE user=?",

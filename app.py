@@ -4,13 +4,16 @@ Run:  streamlit run app.py
 """
 
 import os
+import secrets
 
+import bcrypt
 import pandas as pd
 import streamlit as st
 
 import analytics as an
 import auth_setup
 import data as dl
+import db
 import journal
 import predictor as pr
 import props_model as pm
@@ -97,6 +100,7 @@ if st.session_state.get("authentication_status") is not True:
     st.stop()
 USER = st.session_state.get("username", "jeff")
 NAME = st.session_state.get("name", USER)
+IS_ADMIN = db.user_level(USER) == "admin"
 
 games = dl.load_games()
 
@@ -131,7 +135,7 @@ def team_inj_map(team):
 
 # ---------------- sidebar ----------------
 st.sidebar.header("Controls")
-st.sidebar.markdown(f"👤 **{NAME}**")
+st.sidebar.markdown(f"👤 **{NAME}**{' · 🛠️ admin' if IS_ADMIN else ''}")
 authenticator.logout("🚪 Log out", "sidebar")
 season, week = dl.current_season_week(games)
 season = st.sidebar.number_input("Season", 2020, 2030, season)
@@ -147,15 +151,17 @@ try:
     saved_key = st.secrets.get("ODDS_API_KEY", saved_key)  # house key on cloud
 except Exception:
     pass
-api_key = st.sidebar.text_input("The Odds API key (optional)", value=saved_key, type="password",
-                                help="Free key at the-odds-api.com -> multi-book lines + line shopping")
-if api_key and api_key.strip() != saved_key:
-    try:
-        with open(KEY_FILE, "w") as _f:
-            _f.write(api_key.strip())
-        st.sidebar.success("Key saved to disk — persists across restarts")
-    except Exception:
-        pass
+api_key = saved_key
+if IS_ADMIN:
+    api_key = st.sidebar.text_input("The Odds API key (optional)", value=saved_key, type="password",
+                                    help="Free key at the-odds-api.com -> multi-book lines + line shopping")
+    if api_key and api_key.strip() != saved_key:
+        try:
+            with open(KEY_FILE, "w") as _f:
+                _f.write(api_key.strip())
+            st.sidebar.success("Key saved to disk — persists across restarts")
+        except Exception:
+            pass
 if st.sidebar.button("🔄 Refresh live data"):
     import glob
     import os
@@ -174,7 +180,8 @@ espn_odds = {}
 try:
     espn_odds = dl.espn_week_odds(season, week)
 except Exception as e:
-    st.sidebar.warning(f"ESPN odds unavailable: {e}")
+    if IS_ADMIN:
+        st.sidebar.warning(f"ESPN odds unavailable: {e}")
 
 books_by_abbr = {}
 odds_err = None
@@ -187,9 +194,9 @@ if api_key:
                 books_by_abbr[key] = books
     except Exception as e:
         odds_err = str(e)
-if api_key and odds_err:
+if api_key and odds_err and IS_ADMIN:
     st.sidebar.error(f"Odds API: {odds_err}")
-elif api_key and not books_by_abbr:
+elif api_key and not books_by_abbr and IS_ADMIN:
     st.sidebar.info("Odds API: no NFL markets on the board right now.")
 
 injuries = {}
@@ -205,7 +212,8 @@ except Exception:
     nv_injuries, nv_status = {}, "unavailable"
 
 st.sidebar.markdown(f"**{len(week_games)} games** loaded • injuries for {len(injuries)} teams")
-page = st.sidebar.radio("View", ["Games", "📒 Bet Journal", "📈 Track Record"])
+views = ["Games", "📒 Bet Journal", "📈 Track Record"] + (["👥 Users"] if IS_ADMIN else [])
+page = st.sidebar.radio("View", views)
 
 # ---------------- bet journal page ----------------
 def journal_page():
@@ -267,6 +275,53 @@ def journal_page():
 
 if page == "📒 Bet Journal":
     journal_page()
+    st.stop()
+
+# ---------------- admin: user management page ----------------
+def users_page():
+    st.header("👥 User Management")
+    with st.expander("➕ Add user", expanded=True):
+        c1, c2 = st.columns(2)
+        fname = c1.text_input("First name", key="new_fname")
+        email = c2.text_input("Email", key="new_email")
+        level = st.selectbox("Level", ["user", "admin"], key="new_level")
+        if st.button("Create user"):
+            uname = fname.strip().lower()
+            if not uname:
+                st.error("First name is required.")
+            elif uname in [u["username"] for u in db.list_users()]:
+                st.error(f"'{uname}' already exists.")
+            else:
+                pw = "edge-" + secrets.token_urlsafe(5)
+                db.add_user(uname, fname.strip().title(), email.strip(), level,
+                            bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode())
+                st.success(f"✅ User **{uname}** created. Temp password — share it now, "
+                           f"it won't be shown again:")
+                st.code(pw)
+    st.subheader("Accounts")
+    for u in db.list_users():
+        cols = st.columns([2, 3, 1.5, 2, 1.5])
+        cols[0].markdown(f"**{u['name']}** (`{u['username']}`)")
+        cols[1].markdown(u["email"] or "—")
+        cols[2].markdown("🛠️ admin" if u["level"] == "admin" else "user")
+        if u["username"] != USER:
+            if cols[3].button("🔑 Reset password", key=f"rst_{u['username']}"):
+                pw = "edge-" + secrets.token_urlsafe(5)
+                db.set_password(u["username"],
+                                bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode())
+                st.success(f"New temp password for **{u['username']}** (shown once):")
+                st.code(pw)
+            if cols[4].button("🗑️", key=f"del_{u['username']}", help="Delete user"):
+                db.delete_user(u["username"])
+                st.rerun()
+        else:
+            cols[3].caption("(that's you)")
+
+if page == "👥 Users":
+    if not IS_ADMIN:
+        st.error("Admins only.")
+        st.stop()
+    users_page()
     st.stop()
 
 # ---------------- track record page ----------------
