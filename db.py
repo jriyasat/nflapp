@@ -105,12 +105,23 @@ def _connect():
         if not _TURSO_SCHEMA_DONE:
             for stmt in _SCHEMA:
                 conn.execute(stmt)
+            _ensure_user_cols(conn)
             _TURSO_SCHEMA_DONE = True
         return conn
     conn = sqlite3.connect(DB_PATH)
     for stmt in _SCHEMA:
         conn.execute(stmt)
+    _ensure_user_cols(conn)
     return conn
+
+
+def _ensure_user_cols(conn):
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+    for col, ddl in (("email_enabled", "INTEGER DEFAULT 0"),
+                     ("telegram_enabled", "INTEGER DEFAULT 0"),
+                     ("telegram_chat_id", "TEXT")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
 
 
 def migrate_legacy():
@@ -154,10 +165,50 @@ migrate_legacy()
 def list_users():
     with _connect() as c:
         rows = c.execute(
-            "SELECT username, name, email, level, created_at FROM users ORDER BY created_at"
+            "SELECT username, name, email, level, created_at, email_enabled,"
+            " telegram_enabled, telegram_chat_id FROM users ORDER BY created_at"
         ).fetchall()
-    return [{"username": u, "name": n, "email": e, "level": l, "created_at": t}
-            for u, n, e, l, t in rows]
+    return [{"username": u, "name": n, "email": e, "level": l, "created_at": t,
+             "email_enabled": ee, "telegram_enabled": te, "telegram_chat_id": tc}
+            for u, n, e, l, t, ee, te, tc in rows]
+
+
+def get_user(username):
+    with _connect() as c:
+        r = c.execute("SELECT username, name, email, level, pw_hash, email_enabled,"
+                      " telegram_enabled, telegram_chat_id FROM users WHERE username=?",
+                      (username,)).fetchone()
+    if not r:
+        return None
+    return {"username": r[0], "name": r[1], "email": r[2], "level": r[3],
+            "pw_hash": r[4], "email_enabled": r[5], "telegram_enabled": r[6],
+            "telegram_chat_id": r[7]}
+
+
+def update_email(username, email):
+    with _connect() as c:
+        c.execute("UPDATE users SET email=? WHERE username=?", (email, username))
+
+
+def update_prefs(username, email_enabled=None, telegram_enabled=None):
+    with _connect() as c:
+        if email_enabled is not None:
+            c.execute("UPDATE users SET email_enabled=? WHERE username=?",
+                      (int(email_enabled), username))
+        if telegram_enabled is not None:
+            c.execute("UPDATE users SET telegram_enabled=? WHERE username=?",
+                      (int(telegram_enabled), username))
+
+
+def link_telegram(username, chat_id):
+    with _connect() as c:
+        c.execute("UPDATE users SET telegram_chat_id=? WHERE username=?",
+                  (str(chat_id), username))
+
+
+def admin_count():
+    with _connect() as c:
+        return c.execute("SELECT COUNT(*) FROM users WHERE level='admin'").fetchone()[0]
 
 
 def add_user(username, name, email, level, pw_hash):
@@ -171,6 +222,7 @@ def add_user(username, name, email, level, pw_hash):
 def delete_user(username):
     with _connect() as c:
         c.execute("DELETE FROM users WHERE username=?", (username,))
+        c.execute("DELETE FROM bets WHERE user=?", (username,))  # deletes everything
 
 
 def set_password(username, pw_hash):

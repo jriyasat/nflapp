@@ -12,6 +12,7 @@ os.environ.pop("PYTHONPATH", None)
 
 import pandas as pd
 import data as dl
+import db
 import predictor as pr
 import weather as wx
 import tracker
@@ -184,9 +185,26 @@ def main():
         return
     first = wk.iloc[0]["gameday"]
     kickoff = first.strftime("%a %b %d") if pd.notna(first) else ""
-    print(f"🏈 *NFL Edge Morning Brief* — {datetime.now().strftime('%a %b %d')}")
-    print(f"Week {week} kicks off {kickoff}\n")
-    print("\n\n".join(sections))
+    today = datetime.now().strftime("%a %b %d")
+    header = f"🏈 *NFL Edge Morning Brief* — {today}\nWeek {week} kicks off {kickoff}\n"
+    digest = "\n\n".join(sections)
+    print(header)
+    print(digest)
+
+    # ---- fan-out to opted-in users (email + telegram DMs) ----
+    try:
+        import notify
+        full = header + "\n" + digest
+        for u in db.list_users():
+            try:
+                if u.get("email_enabled") and u.get("email"):
+                    notify.send_email(u["email"], f"NFL Edge Brief — {today}", full)
+                if u.get("telegram_enabled") and u.get("telegram_chat_id"):
+                    notify.send_telegram(u["telegram_chat_id"], full)
+            except Exception:
+                continue
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
