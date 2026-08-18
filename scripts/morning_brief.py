@@ -11,10 +11,10 @@ sys.path.insert(0, "/Users/jeff/nfl-edge")
 os.environ.pop("PYTHONPATH", None)
 
 import pandas as pd
-
 import data as dl
 import predictor as pr
 import weather as wx
+import tracker
 
 SNAP_LINES = os.path.join(dl.CACHE, "snap_lines.json")
 SNAP_INJ = os.path.join(dl.CACHE, "snap_inj.json")
@@ -97,6 +97,22 @@ def main():
 
     # ---- model edges + angles + totals for the week (de-duped vs last brief) ----
     elo = pr.Elo(games)
+    # log model picks (>=2pt edges) daily; grade settled picks
+    books_by_abbr = {}
+    key_path = os.path.join(dl.CACHE, "odds_api_key.txt")
+    if os.path.exists(key_path):
+        try:
+            _key = open(key_path).read().strip()
+            if _key:
+                raw = dl.odds_api_lines(_key)
+                for (an_, hn), books in raw.items():
+                    k = (dl.TEAM_NAME_TO_ABBR.get(an_), dl.TEAM_NAME_TO_ABBR.get(hn))
+                    if all(k):
+                        books_by_abbr[k] = books
+        except Exception:
+            pass
+    tracker.log_predictions(games, elo, season, week, books_by_abbr)
+    tracker.grade_predictions(games)
     edges, angles = [], []
     new_edge_snap = {}
     old_tot = load_snap(SNAP_TOTALS) or {}

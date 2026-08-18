@@ -14,6 +14,7 @@ import journal
 import predictor as pr
 import props_model as pm
 import sgp
+import tracker
 import weather as wx
 
 st.set_page_config(page_title="NFL Edge Finder", page_icon="🏈", layout="wide")
@@ -188,7 +189,7 @@ except Exception:
     nv_injuries, nv_status = {}, "unavailable"
 
 st.sidebar.markdown(f"**{len(week_games)} games** loaded • injuries for {len(injuries)} teams")
-page = st.sidebar.radio("View", ["Games", "📒 Bet Journal"])
+page = st.sidebar.radio("View", ["Games", "📒 Bet Journal", "📈 Track Record"])
 
 # ---------------- bet journal page ----------------
 def journal_page():
@@ -249,6 +250,57 @@ def journal_page():
 
 if page == "📒 Bet Journal":
     journal_page()
+    st.stop()
+
+# ---------------- track record page ----------------
+def track_record_page():
+    st.header("📈 Model Track Record")
+    picks = tracker.grade_predictions(games)
+    if not len(picks):
+        st.info("No picks logged yet. The morning brief logs every |edge| ≥ 2 pt call the model "
+                "makes (sides + totals) and grades them against the **closing line**.")
+        return
+    s = tracker.summary(picks)
+    c = st.columns(5)
+    c[0].metric("Sides (at close)", s["spread"]["record"],
+                f"{s['spread']['win_pct']:.1f}%" if s["spread"]["win_pct"] is not None else "—")
+    c[1].metric("Totals (at close)", s["total"]["record"],
+                f"{s['total']['win_pct']:.1f}%" if s["total"]["win_pct"] is not None else "—")
+    profit = s["spread"]["profit"] + s["total"]["profit"]
+    c[2].metric("Profit (flat -110)", f"{profit:+.2f}u")
+    c[3].metric("Graded picks", s["spread"]["n"] + s["total"]["n"])
+    c[4].metric("Pending", s["pending"])
+    st.caption("Breakeven at -110 is 52.4%. Graded at the **closing** line — the honest number. "
+               "Picks are logged daily by the 8 AM brief as edges appear.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("By edge size")
+        rows = tracker.edge_buckets(picks)
+        if rows:
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+            st.caption("If bigger edges don't win more, the signal is noise. This table is the truth serum.")
+        else:
+            st.info("No graded picks yet.")
+    with col2:
+        st.subheader("Calibration")
+        rows = tracker.calibration(picks)
+        if rows:
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+            st.caption("When the model says 56%, it should win ~56%.")
+        else:
+            st.info("No graded picks yet.")
+
+    st.subheader("All picks")
+    show = picks.copy()
+    show["profit"] = show["profit"].apply(lambda v: f"{float(v):+.2f}" if pd.notna(v) and str(v) != "" else "…")
+    show["closing_line"] = show["closing_line"].apply(lambda v: f"{float(v):+.1f}" if pd.notna(v) and str(v) != "" else "…")
+    st.dataframe(show[["logged_at", "game", "pick_type", "side", "model_val",
+                       "market_val_log", "edge_log", "closing_line", "grade", "profit"]].iloc[::-1],
+                 hide_index=True, width="stretch")
+
+if page == "📈 Track Record":
+    track_record_page()
     st.stop()
 
 # ---------------- render helpers ----------------
