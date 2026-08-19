@@ -87,6 +87,27 @@ says "no bet" — most games are.
 **Honesty clause:** every angle badge shows its real 2021-25 record next to it, and the
 📒 Bet Journal grades the model's picks against closing lines all season. If it stops
 working, the numbers will say so.
+
+---
+
+**📖 Terms used above (plain English):**
+
+- **Spread** — the handicap on a game. SEA -3.5 means Seattle must win by 4+ for a spread bet on them to win.
+- **Cover** — beating the spread. SEA -3.5 "covers" if they win by 4 or more.
+- **ATS (against the spread)** — a record measured against the spread, not wins/losses. A team can go 10-7 but 6-11 ATS.
+- **Total / Over-Under** — combined points of both teams. Over 44.5 wins at 45+ combined points.
+- **Moneyline (ML)** — a bet on who wins outright, no spread. Odds like -150 / +130.
+- **-110** — standard odds: bet $110 to win $100. The $10 difference is the book's cut.
+- **Vig (juice)** — the bookmaker's built-in cut. It's why both sides are -110 instead of +100, and why you must win 52.4% to break even.
+- **De-vig** — removing that cut from the odds to reveal the book's *true* implied probability. That's how we find the real market price.
+- **Closing line** — the final spread/total right before kickoff. The smartest number in betting — beating it consistently = real edge.
+- **Elo** — a chess-style rating system: teams gain points for winning, lose for losing, adjusted for opponent strength and margin.
+- **Cover probability** — the model's estimated chance a side covers. 55% means it expects to win that bet ~55 times out of 100.
+- **EV (expected value)** — average profit per dollar bet, long run. +3% EV ≈ +$3 per $100 over many bets. Negative EV = the vig eats you.
+- **Kelly / ¼-Kelly** — a formula for bet sizing from edge size. Full Kelly is aggressive; we show a quarter of it (¼-Kelly) to keep swings survivable.
+- **Unit (u)** — your standard bet size, whatever it is. +2.5u profit = two and a half of your usual bets.
+- **Push** — an exact tie against the number (lands exactly on the spread/total). Stake refunded.
+- **No bet** — the model's edge is smaller than the vig, so betting would lose money long-term even if it "feels right." Discipline is the product.
 """
 
 st.title("🏈 NFL Edge Finder")
