@@ -46,6 +46,23 @@ st.markdown("""
   border: none !important; background: transparent !important;
   padding: 0 .15rem !important; margin-top: .55rem; font-size: .9rem;
 }
+/* full-screen loading overlay */
+.loading-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  background: rgba(2, 6, 23, 0.94);
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 4.5rem;
+  font-weight: 800;
+  letter-spacing: 0.35em;
+  color: #ffffff;
+  text-shadow: 0 0 18px rgba(255,255,255,.85), 0 0 60px rgba(255,255,255,.4);
+  animation: glowPulse 1.2s ease-in-out infinite;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -122,6 +139,11 @@ if st.session_state.get("authentication_status") is not True:
 USER = st.session_state.get("username", "jeff")
 NAME = st.session_state.get("name", USER)
 IS_ADMIN = db.user_level(USER) == "admin"
+
+# full-screen loading overlay: shown while the rest of the script runs,
+# cleared at the end of every page path
+_loading = st.empty()
+_loading.markdown('<div class="loading-overlay">LOADING</div>', unsafe_allow_html=True)
 
 games = dl.load_games()
 
@@ -297,6 +319,7 @@ def journal_page():
 
 if page == "📒 Bet Journal":
     journal_page()
+    _loading.empty()
     st.stop()
 
 # ---------------- admin: user management page ----------------
@@ -342,8 +365,10 @@ def users_page():
 if page == "👥 Users":
     if not IS_ADMIN:
         st.error("Admins only.")
+        _loading.empty()
         st.stop()
     users_page()
+    _loading.empty()
     st.stop()
 
 # ---------------- settings page ----------------
@@ -413,6 +438,7 @@ def settings_page():
 
 if page == "⚙️ Settings":
     settings_page()
+    _loading.empty()
     st.stop()
 
 # ---------------- track record page ----------------
@@ -464,6 +490,7 @@ def track_record_page():
 
 if page == "📈 Track Record":
     track_record_page()
+    _loading.empty()
     st.stop()
 
 # ---------------- render helpers ----------------
@@ -758,3 +785,5 @@ for gi, (_, g) in enumerate(week_games.iterrows()):
             injuries_block(away, home)
 
 st.caption("Historical lines: nflverse closing lines. Live: ESPN + The Odds API. For entertainment/research — bet responsibly.")
+
+_loading.empty()
