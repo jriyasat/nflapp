@@ -23,6 +23,15 @@ GAMES_URL = "https://github.com/nflverse/nflverse-data/releases/download/schedul
 ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
 ESPN_INJURIES = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries"
 ODDS_API = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds/"
+ESPN_NEWS = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/news"
+CBS_RSS = "https://www.cbssports.com/rss/headlines/nfl/"
+
+# betting-relevant headline keywords (injuries + roster movement)
+NEWS_INJURY_KW = ("injur", "placed on ir", "injured reserve", "activated", "waived", "waive",
+                  "released", "release", "signed", "signs", "trade", "questionable", "doubtful",
+                  " out ", "concussion", "hamstring", "ankle", "knee", "shoulder", "acl",
+                  "achilles", "fracture", "sprain", "torn", "surgery", "suspend", "roster",
+                  "cut ", "practice squad", "pup list", "returns", "return from")
 
 GAMES_CACHE_H = 12
 ESPN_CACHE_MIN = 10
@@ -370,3 +379,65 @@ TEAM_NAME_TO_ABBR = {
     "San Francisco 49ers": "SF", "Seattle Seahawks": "SEA", "Tampa Bay Buccaneers": "TB",
     "Tennessee Titans": "TEN", "Washington Commanders": "WAS",
 }
+
+
+# ---------------- news feeds ----------------
+def espn_news(limit=50):
+    """ESPN league news (JSON). [{title, desc, link, published, source}]"""
+    out = []
+    try:
+        data = _get_json(ESPN_NEWS, "espn_news.json", 15, params={"limit": limit}, service="espn")
+        for a in data.get("articles", []):
+            link = (a.get("links", {}).get("web", {}) or {}).get("href", "")
+            out.append({"title": a.get("headline", ""), "desc": a.get("description", ""),
+                        "link": link, "published": a.get("published", ""), "source": "ESPN"})
+    except Exception:
+        pass
+    return out
+
+
+def cbs_news():
+    """CBS Sports NFL RSS feed (stdlib XML parse, 15-min disk cache)."""
+    import xml.etree.ElementTree as ET
+    from email.utils import parsedate_to_datetime
+    out = []
+    path = os.path.join(CACHE, "cbs_news.xml")
+    try:
+        if not _fresh(path, 15 * 60):
+            r = requests.get(CBS_RSS, timeout=20,
+                             headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                      "AppleWebKit/537.36"})
+            r.raise_for_status()
+            with open(path, "w") as f:
+                f.write(r.text)
+        root = ET.parse(path).getroot()
+        for item in root.iter("item"):
+            pub = item.findtext("pubDate", "")
+            try:
+                pub = parsedate_to_datetime(pub).isoformat()
+            except Exception:
+                pass
+            out.append({"title": (item.findtext("title") or "").strip(),
+                        "desc": (item.findtext("description") or "").strip()[:280],
+                        "link": (item.findtext("link") or "").strip(),
+                        "published": pub, "source": "CBS"})
+    except Exception:
+        pass
+    return out
+
+
+def merged_news(limit=40):
+    """ESPN + CBS merged, deduped by title, newest first."""
+    seen, items = set(), []
+    for it in espn_news() + cbs_news():
+        key = " ".join(it["title"].lower().split())[:80]
+        if it["title"] and key not in seen:
+            seen.add(key)
+            items.append(it)
+    items.sort(key=lambda x: x.get("published", ""), reverse=True)
+    return items[:limit]
+
+
+def is_injury_news(item):
+    txt = (item["title"] + " " + item.get("desc", "")).lower()
+    return any(k in txt for k in NEWS_INJURY_KW)

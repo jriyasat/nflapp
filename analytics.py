@@ -2,6 +2,66 @@
 
 import pandas as pd
 
+DIVISIONS = {
+    "AFC East": ["BUF", "MIA", "NE", "NYJ"], "AFC North": ["BAL", "CIN", "CLE", "PIT"],
+    "AFC South": ["HOU", "IND", "JAX", "TEN"], "AFC West": ["DEN", "KC", "LAC", "LV"],
+    "NFC East": ["DAL", "NYG", "PHI", "WAS"], "NFC North": ["CHI", "DET", "GB", "MIN"],
+    "NFC South": ["ATL", "CAR", "NO", "TB"], "NFC West": ["ARI", "LAR", "SEA", "SF"],
+}
+
+
+def team_stats(games, season):
+    """Per-team W-L-T, PF/PA, ATS records for a season (REG).
+    ATS vs closing spread (away-perspective): home covers when result - spread_line > 0."""
+    reg = games[(games["season"] == season) & (games["game_type"] == "REG")
+                & games["result"].notna()]
+    stats = {t: {"w": 0, "l": 0, "t": 0, "pf": 0, "pa": 0,
+                 "ats_w": 0, "ats_l": 0, "ats_p": 0}
+             for ts in DIVISIONS.values() for t in ts}
+    for _, g in reg.iterrows():
+        h, a = g["home_team"], g["away_team"]
+        if h not in stats or a not in stats:
+            continue
+        res = g["result"]
+        hs, as_ = g.get("home_score"), g.get("away_score")
+        if pd.notna(hs) and pd.notna(as_):
+            stats[h]["pf"] += hs; stats[h]["pa"] += as_
+            stats[a]["pf"] += as_; stats[a]["pa"] += hs
+        if res > 0:
+            stats[h]["w"] += 1; stats[a]["l"] += 1
+        elif res < 0:
+            stats[a]["w"] += 1; stats[h]["l"] += 1
+        else:
+            stats[h]["t"] += 1; stats[a]["t"] += 1
+        sp = g.get("spread_line")
+        if pd.notna(sp):
+            margin = res - sp  # home cover margin
+            if margin > 0:
+                stats[h]["ats_w"] += 1; stats[a]["ats_l"] += 1
+            elif margin < 0:
+                stats[a]["ats_w"] += 1; stats[h]["ats_l"] += 1
+            else:
+                stats[h]["ats_p"] += 1; stats[a]["ats_p"] += 1
+    return stats
+
+
+def _winpct(s):
+    n = s["w"] + s["l"] + s["t"]
+    return (s["w"] + 0.5 * s["t"]) / n if n else 0.0
+
+
+def playoff_seeds(stats, conf):
+    """Seed 1-7 for a conference: division winners by win%, then 3 wildcards."""
+    divs = [d for d in DIVISIONS if d.startswith(conf)]
+    leaders = [max(DIVISIONS[d], key=lambda t: _winpct(stats[t])) for d in divs]
+    leaders.sort(key=lambda t: _winpct(stats[t]), reverse=True)
+    seeds = {t: i + 1 for i, t in enumerate(leaders)}
+    rest = sorted((t for d in divs for t in DIVISIONS[d] if t not in seeds),
+                  key=lambda t: _winpct(stats[t]), reverse=True)
+    for i, t in enumerate(rest[:3]):
+        seeds[t] = 5 + i
+    return seeds
+
 # Team home timezones (for travel/body-clock spots)
 TEAM_TZ = {
     "ARI": "MT", "ATL": "ET", "BAL": "ET", "BUF": "ET", "CAR": "ET", "CHI": "CT",

@@ -272,8 +272,8 @@ except Exception:
     nv_injuries, nv_status = {}, "unavailable"
 
 st.sidebar.markdown(f"**{len(week_games)} games** loaded • injuries for {len(injuries)} teams")
-views = (["Games", "📒 Bet Journal", "📈 Track Record", "🏆 Pick'em", "❓ How It Works", "⚙️ Settings"]
-         + (["👥 Users"] if IS_ADMIN else []))
+views = (["Games", "📒 Bet Journal", "📈 Track Record", "🏆 Pick'em", "📰 News", "🏅 Standings",
+          "❓ How It Works", "⚙️ Settings"] + (["👥 Users"] if IS_ADMIN else []))
 if "_goto" in st.session_state:
     st.session_state["nav_radio"] = st.session_state.pop("_goto")
 page = st.sidebar.radio("View", views, key="nav_radio")
@@ -425,6 +425,87 @@ def pickem_page():
 
 if page == "🏆 Pick'em":
     pickem_page()
+    _loading.empty()
+    st.stop()
+
+# ---------------- news page ----------------
+@st.cache_data(ttl=900)
+def get_news():
+    return dl.merged_news()
+
+
+def _ago(iso):
+    try:
+        t = pd.Timestamp(iso)
+        if t.tzinfo is not None:
+            t = t.tz_convert(None)
+        d = pd.Timestamp.now() - t
+        h = d.total_seconds() / 3600
+        return f"{int(d.total_seconds()//60)}m ago" if h < 1 else (f"{int(h)}h ago" if h < 48 else t.strftime("%b %d"))
+    except Exception:
+        return ""
+
+
+def news_page():
+    st.header("📰 NFL News")
+    view = st.radio("Feed", ["All news", "🏥 Injuries & roster moves"], horizontal=True)
+    items = get_news()
+    if view != "All news":
+        items = [i for i in items if dl.is_injury_news(i)]
+    if not items:
+        st.info("News feed unavailable right now — try again in a few minutes.")
+        return
+    st.caption(f"{len(items)} stories • ESPN + CBS • 🏥 = moves lines")
+    for it in items:
+        badge = "🏥 " if dl.is_injury_news(it) else ""
+        title = f"[{it['title']}]({it['link']})" if it.get("link") else it["title"]
+        st.markdown(f"{badge}**{title}**  \n<small>{it['source']} · {_ago(it.get('published',''))}</small>",
+                    unsafe_allow_html=True)
+        if it.get("desc"):
+            st.caption(it["desc"][:220])
+
+if page == "📰 News":
+    news_page()
+    _loading.empty()
+    st.stop()
+
+# ---------------- standings page ----------------
+def standings_page():
+    st.header("🏅 Standings")
+    played = sorted(games[games["result"].notna()]["season"].unique())
+    default = int(played[-1]) if len(played) else season
+    yr = st.selectbox("Season", sorted(set(played + [season])), index=len(set(played + [season])) - 1)
+    stats = an.team_stats(games, yr)
+    t1, t2 = st.tabs(["🏅 Standings", "🎯 ATS Standings"])
+    with t1:
+        if yr == default and default != season:
+            st.caption("2026 hasn't kicked off yet — showing last season. Flips automatically in Week 1.")
+        afc, nfc = st.columns(2)
+        for conf, col in (("AFC", afc), ("NFC", nfc)):
+            seeds = an.playoff_seeds(stats, conf)
+            with col:
+                for div in [d for d in an.DIVISIONS if d.startswith(conf)]:
+                    rows = []
+                    for t in sorted(an.DIVISIONS[div], key=lambda x: an._winpct(stats[x]), reverse=True):
+                        s = stats[t]
+                        rows.append({"Team": t, "W": s["w"], "L": s["l"], "T": s["t"],
+                                     "PF": s["pf"], "PA": s["pa"],
+                                     "Seed": seeds.get(t, "")})
+                    st.markdown(f"**{div}**")
+                    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        st.caption("Seeds 1-4 = division leaders • 5-7 = wildcards")
+    with t2:
+        rows = []
+        for t, s in stats.items():
+            n = s["ats_w"] + s["ats_l"]
+            rows.append({"Team": t, "ATS": f"{s['ats_w']}-{s['ats_l']}-{s['ats_p']}",
+                         "Cover %": round(100 * s["ats_w"] / n, 1) if n else 0.0})
+        rows.sort(key=lambda r: -r["Cover %"])
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        st.caption("Against-the-spread record vs closing lines — the standings that pay.")
+
+if page == "🏅 Standings":
+    standings_page()
     _loading.empty()
     st.stop()
 
