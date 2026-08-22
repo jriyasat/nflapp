@@ -78,7 +78,12 @@ def current_season_week(df):
     return int(last["season"]), int(last["week"])
 
 
-def _get_json(url, cache_name, max_age_min, params=None):
+_ESPN_DOWN_UNTIL = 0.0  # in-process circuit breaker: skip ESPN for 30min after a WAF ban
+
+
+def _get_json(url, cache_name, max_age_min, params=None, service=None):
+    if service == "espn" and time.time() < _ESPN_DOWN_UNTIL:
+        raise requests.HTTPError("ESPN circuit open (rate-limited recently)")
     path = os.path.join(CACHE, cache_name)
     if _fresh(path, max_age_min * 60):
         try:
@@ -87,7 +92,8 @@ def _get_json(url, cache_name, max_age_min, params=None):
         except Exception:
             pass
     last_err = None
-    for attempt in range(3):
+    attempts = 1 if service == "espn" else 3  # ESPN WAF bans are IP+time based; retrying is pointless
+    for attempt in range(attempts):
         try:
             r = requests.get(url, params=params, timeout=30,
                              headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -102,7 +108,9 @@ def _get_json(url, cache_name, max_age_min, params=None):
             return data
         except Exception as e:
             last_err = e
-            time.sleep(2 * (attempt + 1))
+            if service == "espn" and getattr(getattr(e, "response", None), "status_code", None) == 403:
+                globals()["_ESPN_DOWN_UNTIL"] = time.time() + 1800
+            time.sleep(1.5 * (attempt + 1))
     # fall back to stale cache if we have one
     if os.path.exists(path):
         try:
@@ -116,7 +124,7 @@ def _get_json(url, cache_name, max_age_min, params=None):
 def espn_week_odds(season, week, seasontype=2):
     """ESPN lines for a week (seasontype: 1=PRE, 2=REG, 3=POST). {} if not posted."""
     data = _get_json(ESPN_SCOREBOARD, f"espn_{season}_{seasontype}_{week}.json",
-                     ESPN_CACHE_MIN,
+                     ESPN_CACHE_MIN, service="espn",
                      params={"dates": season, "seasontype": seasontype, "week": week, "limit": 100})
     out = {}
     for ev in data.get("events", []):
@@ -150,7 +158,7 @@ def espn_injuries():
     cache_path = os.path.join(CACHE, "espn_injuries.json")
     if os.path.exists(cache_path) and _MEMO.get("inj_mt") == os.path.getmtime(cache_path):
         return _MEMO["inj"]
-    data = _get_json(ESPN_INJURIES, "espn_injuries.json", 360)
+    data = _get_json(ESPN_INJURIES, "espn_injuries.json", 360, service="espn")
     out = {}
     for block in data.get("injuries", []):
         team = block.get("team", {}).get("abbreviation", "?")

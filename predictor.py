@@ -37,7 +37,10 @@ class Elo:
     """538-style Elo with MOV multiplier + offseason regression; spread map fit on data."""
 
     def __init__(self, games):
-        g = games[(games["result"].notna()) & games["game_type"].isin(["REG", "POST"])]
+        # ratings verified identical trained on 1999+ vs 2015+ (regression washes
+        # out old seasons) — 2015+ is 3x faster
+        g = games[(games["result"].notna()) & (games["season"] >= 2015)
+                  & games["game_type"].isin(["REG", "POST"])]
         g = g.sort_values(["season", "game_type", "week", "gameday"])
         self.ratings = {}
         hist, last_season = [], None

@@ -11,6 +11,7 @@ Migrates legacy data/bets.csv + data/predictions.csv on first run.
 
 import os
 import sqlite3
+import time
 import uuid
 
 import pandas as pd
@@ -242,17 +243,20 @@ def add_user(username, name, email, level, pw_hash):
                   " VALUES (?,?,?,?,?,?)",
                   (username, name, email, level, pw_hash,
                    pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")))
+    _creds_invalidate()
 
 
 def delete_user(username):
     with _connect() as c:
         c.execute("DELETE FROM users WHERE username=?", (username,))
         c.execute("DELETE FROM bets WHERE user=?", (username,))  # deletes everything
+    _creds_invalidate()
 
 
 def set_password(username, pw_hash):
     with _connect() as c:
         c.execute("UPDATE users SET pw_hash=? WHERE username=?", (pw_hash, username))
+    _creds_invalidate()
 
 
 def user_level(username):
@@ -261,12 +265,27 @@ def user_level(username):
     return r[0] if r else "user"
 
 
+_CRED_CACHE = {"t": 0.0, "v": None}
+
+
 def auth_credentials():
-    """streamlit-authenticator credentials dict built from the users table."""
+    """streamlit-authenticator credentials dict built from the users table.
+    60s in-process memo — this is called on every rerun, so it saves a
+    Turso roundtrip each time. Invalidated on any user mutation."""
+    if time.time() - _CRED_CACHE["t"] < 60 and _CRED_CACHE["v"] is not None:
+        return _CRED_CACHE["v"]
     with _connect() as c:
         rows = c.execute("SELECT username, name, email, pw_hash FROM users").fetchall()
-    return {"usernames": {u: {"name": n, "email": e, "password": h}
-                          for u, n, e, h in rows}}
+    v = {"usernames": {u: {"name": n, "email": e, "password": h}
+                       for u, n, e, h in rows}}
+    _CRED_CACHE.update(t=time.time(), v=v)
+    return v
+
+
+def _creds_invalidate():
+    _CRED_CACHE["t"] = 0.0
+
+
 def load_bets(user):
     with _connect() as c:
         rows = c.execute(f"SELECT {','.join(_BETS_COLS)} FROM bets WHERE user=?",
