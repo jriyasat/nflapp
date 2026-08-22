@@ -403,12 +403,13 @@ def help_page():
         st.video("https://www.youtube.com/watch?v=VXGviaMi03E")
 
     st.subheader("🗺️ The diagrams")
+    GH = "https://jriyasat.github.io/nflapp"
     d1, d2 = st.columns(2)
     with d1:
-        st.markdown("[![Data map](/app/static/data-map-preview.png)](/app/static/data-map.html)")
+        st.markdown(f"[![Data map]({GH}/data-map-preview.png)]({GH}/data-map.html)")
         st.caption("⤴ Data map — click to open the full interactive version")
     with d2:
-        st.markdown("[![Model pipeline](/app/static/model-diagram-preview.png)](/app/static/model-diagram.html)")
+        st.markdown(f"[![Model pipeline]({GH}/model-diagram-preview.png)]({GH}/model-diagram.html)")
         st.caption("⤴ Model pipeline — click to open the full interactive version")
 
     st.caption("Want the deep dive with backtest numbers? Click the ❓ next to 'Model line' on any Predictor tab.")
