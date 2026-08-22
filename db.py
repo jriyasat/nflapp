@@ -91,7 +91,10 @@ _SCHEMA = ["""CREATE TABLE IF NOT EXISTS bets (
     "CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user)",
     """CREATE TABLE IF NOT EXISTS users (
     username TEXT PRIMARY KEY, name TEXT, email TEXT,
-    level TEXT DEFAULT 'user', pw_hash TEXT, created_at TEXT)"""]
+    level TEXT DEFAULT 'user', pw_hash TEXT, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS line_history (
+    game TEXT, ts TEXT, spread_away REAL, total REAL)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uniq_lh ON line_history(game, ts)"]
 
 
 def _connect():
@@ -119,7 +122,8 @@ def _ensure_user_cols(conn):
     cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
     for col, ddl in (("email_enabled", "INTEGER DEFAULT 0"),
                      ("telegram_enabled", "INTEGER DEFAULT 0"),
-                     ("telegram_chat_id", "TEXT")):
+                     ("telegram_chat_id", "TEXT"),
+                     ("bankroll", "REAL"), ("unit", "REAL")):
         if col not in cols:
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
 
@@ -176,13 +180,14 @@ def list_users():
 def get_user(username):
     with _connect() as c:
         r = c.execute("SELECT username, name, email, level, pw_hash, email_enabled,"
-                      " telegram_enabled, telegram_chat_id FROM users WHERE username=?",
+                      " telegram_enabled, telegram_chat_id, bankroll, unit FROM users WHERE username=?",
                       (username,)).fetchone()
     if not r:
         return None
     return {"username": r[0], "name": r[1], "email": r[2], "level": r[3],
             "pw_hash": r[4], "email_enabled": r[5], "telegram_enabled": r[6],
-            "telegram_chat_id": r[7]}
+            "telegram_chat_id": r[7], "bankroll": r[8] if len(r) > 8 else None,
+            "unit": r[9] if len(r) > 9 else None}
 
 
 def update_email(username, email):
@@ -200,10 +205,30 @@ def update_prefs(username, email_enabled=None, telegram_enabled=None):
                       (int(telegram_enabled), username))
 
 
+def update_bankroll(username, bankroll, unit):
+    with _connect() as c:
+        c.execute("UPDATE users SET bankroll=?, unit=? WHERE username=?",
+                  (bankroll, unit, username))
+
+
 def link_telegram(username, chat_id):
     with _connect() as c:
         c.execute("UPDATE users SET telegram_chat_id=? WHERE username=?",
-                  (str(chat_id), username))
+                  (chat_id, username))
+
+
+# ---------------- line movement history ----------------
+def append_line_history(game, spread_away, total, ts):
+    with _connect() as c:
+        c.execute("INSERT OR IGNORE INTO line_history (game, ts, spread_away, total)"
+                  " VALUES (?,?,?,?)", (game, ts, spread_away, total))
+
+
+def line_history(game):
+    with _connect() as c:
+        rows = c.execute("SELECT ts, spread_away, total FROM line_history"
+                         " WHERE game=? ORDER BY ts", (game,)).fetchall()
+    return pd.DataFrame(rows, columns=["ts", "spread_away", "total"])
 
 
 def admin_count():

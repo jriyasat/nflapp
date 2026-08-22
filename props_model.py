@@ -64,6 +64,24 @@ def _norm(name):
     return n.strip()
 
 
+PROJ_STAT = {"proj_pass": "passing_yards", "proj_rush": "rushing_yards",
+             "proj_rec_yds": "receiving_yards", "proj_rec": "receptions"}
+
+
+def hit_rate(ps, player_id, proj_col, line, last_n=10):
+    """Over/under record vs a line over the player's last N REG games."""
+    if line is None:
+        return None
+    scol = PROJ_STAT.get(proj_col)
+    g = ps[(ps["player_id"] == player_id) & (ps["season_type"] == "REG")]
+    g = g.sort_values(["season", "week"]).tail(last_n)
+    if g.empty:
+        return None
+    overs = int((g[scol] > line).sum())
+    unders = int((g[scol] < line).sum())
+    return {"n": len(g), "overs": overs, "unders": unders}
+
+
 def project_game(ps, defs, team, opponent, per_pos=2, injuries=None):
     """Projections for one team's key players vs an opponent.
 

@@ -172,6 +172,10 @@ except Exception:
 
 ABBR_TO_NAME = {v: k for k, v in dl.TEAM_NAME_TO_ABBR.items()}
 
+@st.cache_data(ttl=300)
+def get_user_settings(username):
+    return db.get_user(username)
+
 @st.cache_data(ttl=3600)
 def get_projections(team, opp, inj_items):
     """Memoized per-matchup projections (the heaviest per-rerun compute).
@@ -281,6 +285,24 @@ def journal_page():
     c[3].metric("Avg CLV", f"{s.get('avg_clv', 0):+.2f}" if s.get("n_clv") else "-")
     c[4].metric("Beat the close", f"{s.get('beat_close_pct', 0):.0f}% ({s.get('n_clv', 0)})"
                 if s.get("n_clv") else "-")
+    me_u = get_user_settings(USER) or {}
+    if me_u.get("bankroll"):
+        br, un = me_u["bankroll"], me_u.get("unit") or 1.0
+        pnl = s.get("profit", 0) * un
+        st.metric("💰 Bankroll balance", f"${br + pnl:,.0f}",
+                  f"started ${br:,.0f} · P/L ${pnl:+,.0f}")
+    with st.expander("💰 Bankroll settings"):
+        b1, b2 = st.columns(2)
+        br_in = b1.number_input("Bankroll ($)", min_value=0.0,
+                                value=float(me_u.get("bankroll") or 0), step=50.0)
+        un_in = b2.number_input("Unit size ($)", min_value=0.0,
+                                value=float(me_u.get("unit") or 0), step=5.0,
+                                help="Journal stakes are in units — this converts them to $.")
+        if st.button("Save bankroll"):
+            db.update_bankroll(USER, br_in, un_in)
+            get_user_settings.clear()
+            st.success("Bankroll saved ✅")
+            st.rerun()
     st.caption("CLV: positive = you got a better number than the close. Beating the close "
                ">53% of the time over 100+ bets is the strongest known signal of a real edge.")
 
@@ -566,6 +588,12 @@ def fmt_ml(v):
     return f"{v:+d}" if isinstance(v, (int, float)) else "-"
 
 def lines_block(away, home, espn_o, books):
+    hist = db.line_history(f"{away} @ {home}")
+    if len(hist) >= 2:
+        st.caption("📉 Line movement (daily snapshots, away-team spread)")
+        m1, m2 = st.columns(2)
+        m1.line_chart(hist.set_index("ts")[["spread_away"]], y_label="spread (away)")
+        m2.line_chart(hist.set_index("ts")[["total"]], y_label="total")
     rows = []
     if books:
         for bk, e in books.items():
@@ -682,18 +710,21 @@ def predictor_tab(g, away, home):
         st.markdown(f"**Cover probability:** {home} {p*100:.0f}% / {away} {(1-p)*100:.0f}%")
         st.progress(min(max(p, 0.0), 1.0))
         rows = []
+        br = (get_user_settings(USER) or {}).get("bankroll")
         for side, team in (("home", home), ("away", away)):
             ev = pred.get(f"ev_{side}")
             if ev is not None:
+                k = pred[f"kelly_{side}"]
+                ktxt = (f"{k*100:.1f}% of bankroll" + (f" (${k*br:.0f})" if br else "")) if k > 0 else "no bet"
                 rows.append({"Side": team, "EV @-110": f"{ev*100:+.1f}%",
-                             "¼ Kelly stake": f"{pred[f'kelly_{side}']*100:.1f}% of bankroll"
-                             if pred[f"kelly_{side}"] > 0 else "no bet"})
+                             "¼ Kelly stake": ktxt})
         for side in ("over", "under"):
             ev = pred.get(f"ev_{side}")
             if ev is not None:
+                k = pred[f"kelly_{side}"]
+                ktxt = (f"{k*100:.1f}% of bankroll" + (f" (${k*br:.0f})" if br else "")) if k > 0 else "no bet"
                 rows.append({"Side": side.upper(), "EV @-110": f"{ev*100:+.1f}%",
-                             "¼ Kelly stake": f"{pred[f'kelly_{side}']*100:.1f}% of bankroll"
-                             if pred[f"kelly_{side}"] > 0 else "no bet"})
+                             "¼ Kelly stake": ktxt})
         st.table(pd.DataFrame(rows))
         if pred.get("total_adjustments"):
             st.markdown("**Total adjustments:** " + " • ".join(
@@ -720,6 +751,16 @@ def props_tab(g, away, home):
     for team, opp in ((away, home), (home, away)):
         st.markdown(f"**{team}** (vs {opp})")
         res = get_projections(team, opp, team_inj_map(team))
+        # 🧪 injury what-if simulator: pretend any player is OUT, watch volume reshuffle
+        sim = st.multiselect(f"🧪 Simulate OUT ({team})",
+                             [p["player"] for p in res["players"]],
+                             key=f"sim_{away}_{home}_{team}",
+                             placeholder="What-if: bench a player…")
+        if sim:
+            inj = dict(team_inj_map(team))
+            for nm in sim:
+                inj[nm] = "Out"
+            res = get_projections(team, opp, tuple(sorted(inj.items())))
         for w in res["warnings"]:
             st.error(w)
         if res["benched"]:
@@ -739,8 +780,11 @@ def props_tab(g, away, home):
                 e = p.get("edges", {}).get(col)
                 if e:
                     mark = "🟢" if abs(e["edge_pct"]) >= 8 else "⚪"
+                    hr = pm.hit_rate(player_stats, p["player_id"], col, e["line"])
+                    trend = (f" · L{hr['n']} {'O' if hr['overs'] >= hr['unders'] else 'U'} "
+                             f"{max(hr['overs'], hr['unders'])}-{min(hr['overs'], hr['unders'])}") if hr else ""
                     row[label] = (f"{v:.0f} | {e['line']} {mark} "
-                                  f"{e['lean']} {abs(e['edge']):.0f} ({e['edge_pct']:+.0f}%)")
+                                  f"{e['lean']} {abs(e['edge']):.0f} ({e['edge_pct']:+.0f}%){trend}")
                 else:
                     row[label] = f"{v:.0f}"
             rows.append(row)

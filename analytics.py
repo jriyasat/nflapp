@@ -133,6 +133,14 @@ def situational_spots(df, game_row):
             nxt = _next_game(df, team, game_row)
             if nxt is not None and nxt.get("div_game") == 1:
                 spots.append(("LOOKAHEAD?", f"{team} has a division game on deck", _opp(team, game_row)))
+    # Key numbers: 14.6% of NFL games land on 3, 8.7% on 7 (2015-25, n=2,895)
+    sp = game_row.get("spread_line")
+    if pd.notna(sp):
+        a = abs(sp)
+        if 2.5 <= a <= 3.5:
+            spots.append(("🔑 KEY NUMBER", "Line sits on the 3 — 14.6% of games land exactly on 3. The half point is worth real money: shop both sides.", None))
+        elif 6.5 <= a <= 7.5:
+            spots.append(("🔑 KEY NUMBER", "Line sits on the 7 — 8.7% of games land exactly on 7. The half point is worth real money: shop both sides.", None))
     return spots
 
 

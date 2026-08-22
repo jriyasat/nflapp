@@ -39,6 +39,44 @@ def save_snap(path, obj):
     json.dump(obj, open(path, "w"))
 
 
+def recap_sections(games, season, journal_user=None):
+    """Monday recap: last week's graded model picks + optional user journal.
+    Returns (model_sections, user_sections)."""
+    import journal
+    done = games[(games.season == season) & games.result.notna() & (games.game_type == "REG")]
+    if done.empty:
+        return [], []
+    lw = int(done.week.max())
+    picks = tracker.load_picks()
+    model_out, user_out = [], []
+    if not picks.empty:
+        wk = picks[(picks.season == season) & (picks.week == lw) & picks.grade.isin(["won", "lost", "push"])]
+        if not wk.empty:
+            w = int((wk.grade == "won").sum()); l = int((wk.grade == "lost").sum())
+            p = int((wk.grade == "push").sum()); prof = wk.profit.fillna(0).sum()
+            lines = [f"*Week {lw} model: {w}-{l}-{p} ({prof:+.2f}u)*"]
+            for _, r in wk.iterrows():
+                mark = {"won": "✅", "lost": "❌", "push": "➖"}[r.grade]
+                lines.append(f"{mark} {r.game}: {r.side} ({r.pick_type})")
+            s = tracker.summary(picks)
+            if s["n"]:
+                lines.append(f"Season: *{s['wins']}-{s['losses']}-{s['pushes']} ({s['profit']:+.2f}u, {s['roi']:+.1f}% ROI)*")
+            model_out.append("📅 *MONDAY RECAP — model*\n" + "\n".join(lines))
+    if journal_user:
+        bets = journal.settle(journal.load_bets(journal_user), games, journal_user)
+        wk_b = bets[(bets.season == season) & (bets.week == lw) & bets.status.isin(["won", "lost", "push"])]
+        if not wk_b.empty:
+            w = int((wk_b.status == "won").sum()); l = int((wk_b.status == "lost").sum())
+            prof = wk_b.profit.fillna(0).sum()
+            lines = [f"*Week {lw}: {w}-{l} ({prof:+.2f}u)*"]
+            for _, r in wk_b.iterrows():
+                mark = {"won": "✅", "lost": "❌", "push": "➖"}[r.status]
+                clv = f" · CLV {r.clv:+.1f}" if pd.notna(r.get("clv")) and r.get("clv") != "" else ""
+                lines.append(f"{mark} {r.game} {r.selection} {r.line:+g}{clv}")
+            user_out.append(f"📒 *{journal_user}'s journal*\n" + "\n".join(lines))
+    return model_out, user_out
+
+
 def main():
     games = dl.load_games()
     season, week = dl.current_season_week(games)
@@ -72,6 +110,12 @@ def main():
     if movers:
         sections.append("📉 *LINE MOVERS*\n" + "\n".join(movers[:8]))
     save_snap(SNAP_LINES, cur_lines)
+    today_s = datetime.now().strftime("%Y-%m-%d")
+    for label, cur in cur_lines.items():
+        try:
+            db.append_line_history(label, cur.get("spread_away"), cur.get("total"), today_s)
+        except Exception:
+            pass
 
     # ---- injury report changes (escalations to Questionable/Doubtful/Out) ----
     try:
@@ -181,26 +225,37 @@ def main():
         sections.append("🌬️ *WIND ALERTS*\n" + "\n".join(wind_hits[:5]))
     save_snap(SNAP_WX, new_wx)
 
-    if not sections:
+    # ---- Monday recap edition ----
+    is_monday = pd.Timestamp.now().weekday() == 0
+    model_rec, jeff_rec = [], []
+    if is_monday:
+        model_rec, jeff_rec = recap_sections(games, season, journal_user="jeff")
+
+    if not sections and not (model_rec or jeff_rec):
         return
     first = wk.iloc[0]["gameday"]
     kickoff = first.strftime("%a %b %d") if pd.notna(first) else ""
     today = datetime.now().strftime("%a %b %d")
     header = f"🏈 *NFL Edge Morning Brief* — {today}\nWeek {week} kicks off {kickoff}\n"
-    digest = "\n\n".join(sections)
-    print(header)
-    print(digest)
+    full = header + "\n" + "\n\n".join(model_rec + jeff_rec + sections)
+    print(full)
 
-    # ---- fan-out to opted-in users (email + telegram DMs) ----
+    # ---- fan-out to opted-in users (email + telegram DMs); each gets THEIR recap ----
     try:
         import notify
-        full = header + "\n" + digest
         for u in db.list_users():
             try:
+                if u["username"] == "jeff":
+                    urec = jeff_rec
+                elif is_monday:
+                    _, urec = recap_sections(games, season, journal_user=u["username"])
+                else:
+                    urec = []
+                user_full = header + "\n" + "\n\n".join(model_rec + urec + sections)
                 if u.get("email_enabled") and u.get("email"):
-                    notify.send_email(u["email"], f"NFL Edge Brief — {today}", full)
+                    notify.send_email(u["email"], f"NFL Edge Brief — {today}", user_full)
                 if u.get("telegram_enabled") and u.get("telegram_chat_id"):
-                    notify.send_telegram(u["telegram_chat_id"], full)
+                    notify.send_telegram(u["telegram_chat_id"], user_full)
             except Exception:
                 continue
     except Exception:
