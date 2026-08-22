@@ -4,3 +4,4 @@ requests
 streamlit-authenticator
 bcrypt
 pyyaml
+libsql-client
