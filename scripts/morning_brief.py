@@ -158,6 +158,11 @@ def main():
             pass
     tracker.log_predictions(games, elo, season, week, books_by_abbr)
     tracker.grade_predictions(games)
+    try:
+        for w in range(1, week + 1):
+            db.grade_pickem(games, season, w)
+    except Exception:
+        pass
     edges, angles = [], []
     new_edge_snap = {}
     old_tot = load_snap(SNAP_TOTALS) or {}

@@ -272,7 +272,7 @@ except Exception:
     nv_injuries, nv_status = {}, "unavailable"
 
 st.sidebar.markdown(f"**{len(week_games)} games** loaded • injuries for {len(injuries)} teams")
-views = (["Games", "📒 Bet Journal", "📈 Track Record", "❓ How It Works", "⚙️ Settings"]
+views = (["Games", "📒 Bet Journal", "📈 Track Record", "🏆 Pick'em", "❓ How It Works", "⚙️ Settings"]
          + (["👥 Users"] if IS_ADMIN else []))
 if "_goto" in st.session_state:
     st.session_state["nav_radio"] = st.session_state.pop("_goto")
@@ -356,6 +356,75 @@ def journal_page():
 
 if page == "📒 Bet Journal":
     journal_page()
+    _loading.empty()
+    st.stop()
+
+# ---------------- pick'em page ----------------
+def _kickoff_passed(g):
+    try:
+        if pd.isna(g["gameday"]):
+            return False
+        gt = str(g.get("gametime", "13:00"))
+        hh, mm = int(gt.split(":")[0]), int(gt.split(":")[1])
+        return pd.Timestamp.now() > g["gameday"] + pd.Timedelta(hours=hh, minutes=mm)
+    except Exception:
+        return False
+
+
+def pickem_page():
+    st.header("🏆 Weekly Pick'em")
+    st.caption("Up to **5 games** against the spread, every week. Picks lock at kickoff. "
+               "The line is frozen at the moment you pick.")
+    for w in range(1, week + 1):
+        db.grade_pickem(games, season, w)
+
+    mine = db.load_pickem(USER, season, week)
+    picked = dict(zip(mine["game"], mine["pick"])) if not mine.empty else {}
+    grade_by_game = dict(zip(mine["game"], mine["grade"])) if not mine.empty else {}
+
+    st.subheader(f"Week {week} — your picks ({len(picked)}/5)")
+    for _, g in week_games.iterrows():
+        away, home = g["away_team"], g["home_team"]
+        label = f"{away} @ {home}"
+        sp = g["spread_line"]
+        locked = _kickoff_passed(g)
+        line_txt = (f"{away} {sp:+.1f} / {home} {-sp:+.1f}") if pd.notna(sp) else "no line yet"
+        c0, c1, c2 = st.columns([3, 1, 1])
+        my = picked.get(label)
+        c0.markdown(f"**{label}** — {line_txt}"
+                    + (f"  ✅ your pick: **{my}** ({grade_by_game.get(label, 'pending')})" if my else "")
+                    + ("  🔒 locked" if locked and not my else ""))
+        if not locked and pd.notna(sp):
+            full = len(picked) >= 5 and label not in picked
+            if c1.button(f"{away}", key=f"pk_a_{label}", disabled=full):
+                db.save_pickem(USER, season, week, label, away, float(sp))
+                st.rerun()
+            if c2.button(f"{home}", key=f"pk_h_{label}", disabled=full):
+                db.save_pickem(USER, season, week, label, home, float(-sp))
+                st.rerun()
+
+    st.subheader("🏆 Leaderboard")
+    lb = db.pickem_leaderboard(season)
+    if lb:
+        st.dataframe(pd.DataFrame([{"Player": r["user"], "Record": r["record"],
+                                    "Win %": f"{r['win_pct']*100:.0f}%"} for r in lb]),
+                     hide_index=True, width="stretch")
+    else:
+        st.info("No graded picks yet this season — standings appear after Week 1.")
+
+    wk_all = db.load_pickem_week(season, week)
+    if not wk_all.empty:
+        locked_games = {f"{g['away_team']} @ {g['home_team']}"
+                        for _, g in week_games.iterrows() if _kickoff_passed(g)}
+        vis = wk_all[wk_all["game"].isin(locked_games)]
+        if not vis.empty:
+            st.subheader("Everyone's picks (locked games)")
+            st.dataframe(vis.rename(columns={"user": "Player", "game": "Game", "pick": "Pick",
+                                             "line": "Line", "grade": "Result"}),
+                         hide_index=True, width="stretch")
+
+if page == "🏆 Pick'em":
+    pickem_page()
     _loading.empty()
     st.stop()
 
@@ -824,18 +893,24 @@ def props_tab(g, away, home):
         st.caption("Format: **projection | line lean ±edge (%)** — 🟢 = edge ≥8%. Lines = median across books.")
     elif api_key:
         if st.button(f"📡 Load live prop lines (~4 API credits)", key=f"loadprops_{away}_{home}"):
-            with st.spinner("Fetching props from The Odds API..."):
-                try:
-                    fetched = dl.odds_api_event_props(api_key, ABBR_TO_NAME[away], ABBR_TO_NAME[home])
-                    if fetched:
-                        st.session_state[f"props_{away}_{home}"] = fetched
-                        st.rerun()
-                    else:
-                        st.session_state[f"props_none_{away}_{home}"] = True
-                        st.warning("No player props posted for this game yet — books usually hang "
-                                   "them a few days before kickoff. Check back then.")
-                except Exception as e:
-                    st.error(f"Props fetch failed: {e}")
+            used = db.usage_today(USER, "prop_load")
+            if not IS_ADMIN and used >= 3:
+                st.error("Daily prop-line limit reached (3/day per user — protects the shared API quota). "
+                         "Resets at midnight.")
+            else:
+                with st.spinner("Fetching props from The Odds API..."):
+                    try:
+                        db.bump_usage(USER, "prop_load")
+                        fetched = dl.odds_api_event_props(api_key, ABBR_TO_NAME[away], ABBR_TO_NAME[home])
+                        if fetched:
+                            st.session_state[f"props_{away}_{home}"] = fetched
+                            st.rerun()
+                        else:
+                            st.session_state[f"props_none_{away}_{home}"] = True
+                            st.warning("No player props posted for this game yet — books usually hang "
+                                       "them a few days before kickoff. Check back then.")
+                    except Exception as e:
+                        st.error(f"Props fetch failed: {e}")
         if st.session_state.get(f"props_none_{away}_{home}"):
             st.caption("Last check: props not on the board yet.")
     else:

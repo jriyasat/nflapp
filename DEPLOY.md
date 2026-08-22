@@ -39,6 +39,7 @@
 - **Secrets live in exactly two places:** `.streamlit/secrets.toml` (local, gitignored) and the Streamlit Cloud secrets dashboard. Never in git.
 - **PYTHONPATH quirk:** the Hermes agent session exports a polluted PYTHONPATH — always run the app/scripts with `env -u PYTHONPATH` (already baked into run.command and the .sh wrappers).
 - **Turso libsql_client hangs process exit** (non-daemon threads) — scripts using it must `os._exit(0)` at the end.
+- **Module changes need a server restart, not a browser rerun** — Streamlit reruns `app.py` but Python caches `db.py`/`data.py`/etc. in the long-lived process. Symptom: `AttributeError: module has no attribute <new function>`. Fix: `pkill -f "streamlit run app.py"` and relaunch.
 
 ## Rollback
 

@@ -95,7 +95,14 @@ _SCHEMA = ["""CREATE TABLE IF NOT EXISTS bets (
     level TEXT DEFAULT 'user', pw_hash TEXT, created_at TEXT)""",
     """CREATE TABLE IF NOT EXISTS line_history (
     game TEXT, ts TEXT, spread_away REAL, total REAL)""",
-    "CREATE UNIQUE INDEX IF NOT EXISTS uniq_lh ON line_history(game, ts)"]
+    "CREATE UNIQUE INDEX IF NOT EXISTS uniq_lh ON line_history(game, ts)",
+    """CREATE TABLE IF NOT EXISTS pickem (
+    id TEXT PRIMARY KEY, user TEXT, season INT, week INT, game TEXT,
+    pick TEXT, line REAL, created_at TEXT, grade TEXT DEFAULT 'pending')""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uniq_pickem ON pickem(user, season, week, game)",
+    """CREATE TABLE IF NOT EXISTS usage_counters (
+    user TEXT, day TEXT, kind TEXT, n INT DEFAULT 0)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uniq_usage ON usage_counters(user, day, kind)"]
 
 
 def _connect():
@@ -230,6 +237,86 @@ def line_history(game):
         rows = c.execute("SELECT ts, spread_away, total FROM line_history"
                          " WHERE game=? ORDER BY ts", (game,)).fetchall()
     return pd.DataFrame(rows, columns=["ts", "spread_away", "total"])
+
+
+# ---------------- usage counters (per-user daily quotas) ----------------
+def usage_today(user, kind):
+    day = time.strftime("%Y-%m-%d")
+    with _connect() as c:
+        r = c.execute("SELECT n FROM usage_counters WHERE user=? AND day=? AND kind=?",
+                      (user, day, kind)).fetchone()
+    return r[0] if r else 0
+
+
+def bump_usage(user, kind):
+    day = time.strftime("%Y-%m-%d")
+    with _connect() as c:
+        c.execute("INSERT INTO usage_counters (user, day, kind, n) VALUES (?,?,?,1)"
+                  " ON CONFLICT(user, day, kind) DO UPDATE SET n = n + 1", (user, day, kind))
+
+
+# ---------------- pick'em league ----------------
+def save_pickem(user, season, week, game, pick, line):
+    with _connect() as c:
+        c.execute("INSERT OR REPLACE INTO pickem (id, user, season, week, game, pick, line, created_at, grade)"
+                  " VALUES (?,?,?,?,?,?,?,?, COALESCE((SELECT grade FROM pickem WHERE user=? AND season=? AND week=? AND game=?), 'pending'))",
+                  (str(uuid.uuid4())[:8], user, season, week, game, pick, line,
+                   time.strftime("%Y-%m-%d %H:%M"), user, season, week, game))
+
+
+def load_pickem(user, season, week):
+    with _connect() as c:
+        rows = c.execute("SELECT game, pick, line, grade FROM pickem"
+                         " WHERE user=? AND season=? AND week=?", (user, season, week)).fetchall()
+    return pd.DataFrame(rows, columns=["game", "pick", "line", "grade"])
+
+
+def load_pickem_week(season, week):
+    with _connect() as c:
+        rows = c.execute("SELECT user, game, pick, line, grade FROM pickem"
+                         " WHERE season=? AND week=?", (season, week)).fetchall()
+    return pd.DataFrame(rows, columns=["user", "game", "pick", "line", "grade"])
+
+
+def grade_pickem(games, season, week):
+    """Grade pending picks for a completed week (team-perspective line: neg = favorite)."""
+    wk = games[(games["season"] == season) & (games["week"] == week)
+               & games["result"].notna()]
+    if wk.empty:
+        return
+    with _connect() as c:
+        pending = c.execute("SELECT id, game, pick, line FROM pickem"
+                            " WHERE season=? AND week=? AND grade='pending'",
+                            (season, week)).fetchall()
+        for pid, game, pick, line in pending:
+            try:
+                away, home = game.split(" @ ")
+                m = wk[(wk["away_team"] == away) & (wk["home_team"] == home)]
+                if m.empty:
+                    continue
+                res = float(m.iloc[0]["result"])  # home margin
+                margin = res if pick == home else -res
+                diff = margin + (line or 0)
+                grade = "won" if diff > 0 else ("lost" if diff < 0 else "push")
+                c.execute("UPDATE pickem SET grade=? WHERE id=?", (grade, pid))
+            except Exception:
+                continue
+
+
+def pickem_leaderboard(season):
+    with _connect() as c:
+        rows = c.execute("SELECT user, grade FROM pickem WHERE season=? AND grade != 'pending'",
+                         (season,)).fetchall()
+    if not rows:
+        return []
+    board = {}
+    for user, grade in rows:
+        b = board.setdefault(user, {"w": 0, "l": 0, "p": 0})
+        b[{"won": "w", "lost": "l", "push": "p"}[grade]] += 1
+    out = [{"user": u, "record": f"{b['w']}-{b['l']}-{b['p']}",
+            "win_pct": b["w"] / (b["w"] + b["l"]) if (b["w"] + b["l"]) else 0.0,
+            "wins": b["w"]} for u, b in board.items()]
+    return sorted(out, key=lambda r: (-r["win_pct"], -r["wins"]))
 
 
 def admin_count():
