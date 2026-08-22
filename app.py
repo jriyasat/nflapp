@@ -154,6 +154,12 @@ _loading.markdown('<div class="loading-overlay">LOADING</div>', unsafe_allow_htm
 
 games = dl.load_games()
 
+# visible warning if the cloud DB isn't wired (secrets missing/misconfigured)
+if not db._turso_cfg()[0]:
+    st.warning("⚠️ Not connected to the shared database (Turso secrets missing) — "
+               "running on a temporary local DB. Logins and journals will NOT persist. "
+               "Admin: check the secrets configuration.")
+
 @st.cache_resource
 def get_elo():
     return pr.Elo(games)
