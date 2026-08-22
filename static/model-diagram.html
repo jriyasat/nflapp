@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NFL Edge Finder — How the Model Works</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'JetBrains Mono', monospace; background: #020617; min-height: 100vh; padding: 2rem; color: white; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot { width: 12px; height: 12px; background: #34d399; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+    .diagram-container { background: rgba(15, 23, 42, 0.5); border-radius: 1rem; border: 1px solid #1e293b; padding: 1.5rem; overflow-x: auto; }
+    svg { width: 100%; min-width: 900px; display: block; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 2rem; }
+    .card { background: rgba(15, 23, 42, 0.5); border-radius: 0.75rem; border: 1px solid #1e293b; padding: 1.25rem; }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.emerald { background: #34d399; } .card-dot.amber { background: #fbbf24; } .card-dot.violet { background: #a78bfa; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
+    .card li { margin-bottom: 0.375rem; }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>🎯 How the Model Works</h1>
+      </div>
+      <p class="subtitle">The full prediction pipeline — from raw feeds to a sized bet (or a disciplined "no bet")</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1000 720">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- ============ ARROWS ============ -->
+        <line x1="200" y1="105" x2="268" y2="120" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="200" y1="215" x2="268" y2="215" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="200" y1="325" x2="398" y2="340" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="200" y1="435" x2="398" y2="470" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="200" y1="545" x2="398" y2="480" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="340" y1="160" x2="340" y2="248" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="480" y1="245" x2="388" y2="268" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="340" y1="300" x2="340" y2="338" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="480" y1="370" x2="538" y2="370" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="480" y1="490" x2="600" y2="400" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="700" y1="370" x2="758" y2="370" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="840" y1="330" x2="888" y2="180" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="840" y1="410" x2="888" y2="330" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="910" y1="390" x2="910" y2="480" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrowhead)"/>
+
+        <!-- ============ INPUTS ============ -->
+        <rect x="30" y="70" width="170" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="115" y="92" fill="white" font-size="10" font-weight="600" text-anchor="middle">Live odds — all books</text>
+        <text x="115" y="106" fill="#94a3b8" font-size="8" text-anchor="middle">moneylines • spreads • totals</text>
+        <text x="115" y="120" fill="#fbbf24" font-size="7" text-anchor="middle">The Odds API (house key)</text>
+
+        <rect x="30" y="180" width="170" height="70" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="115" y="202" fill="white" font-size="10" font-weight="600" text-anchor="middle">Results since 1999</text>
+        <text x="115" y="216" fill="#94a3b8" font-size="8" text-anchor="middle">every score + closing line</text>
+        <text x="115" y="230" fill="#64748b" font-size="7" text-anchor="middle">nflverse games.csv</text>
+
+        <rect x="30" y="290" width="170" height="70" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="115" y="312" fill="white" font-size="10" font-weight="600" text-anchor="middle">Official injury report</text>
+        <text x="115" y="326" fill="#94a3b8" font-size="8" text-anchor="middle">Out / Doubtful / Questionable</text>
+        <text x="115" y="340" fill="#64748b" font-size="7" text-anchor="middle">nflverse injuries</text>
+
+        <rect x="30" y="400" width="170" height="70" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="115" y="422" fill="white" font-size="10" font-weight="600" text-anchor="middle">Schedule context</text>
+        <text x="115" y="436" fill="#94a3b8" font-size="8" text-anchor="middle">rest days • week # • referee</text>
+        <text x="115" y="450" fill="#64748b" font-size="7" text-anchor="middle">nflverse games.csv</text>
+
+        <rect x="30" y="510" width="170" height="70" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="115" y="532" fill="white" font-size="10" font-weight="600" text-anchor="middle">Wind forecast</text>
+        <text x="115" y="546" fill="#94a3b8" font-size="8" text-anchor="middle">kickoff-hour, outdoor stadiums</text>
+        <text x="115" y="560" fill="#64748b" font-size="7" text-anchor="middle">Open-Meteo</text>
+
+        <!-- ============ STAGE 1: two bases ============ -->
+        <rect x="270" y="90" width="140" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="340" y="112" fill="white" font-size="10" font-weight="600" text-anchor="middle">De-vig every book</text>
+        <text x="340" y="126" fill="#94a3b8" font-size="8" text-anchor="middle">→ median consensus</text>
+        <text x="340" y="144" fill="#fbbf24" font-size="8" font-weight="700" text-anchor="middle">85% of the blend</text>
+
+        <rect x="270" y="180" width="210" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="375" y="202" fill="white" font-size="10" font-weight="600" text-anchor="middle">Elo ratings (538-style)</text>
+        <text x="375" y="216" fill="#94a3b8" font-size="8" text-anchor="middle">win prob → spread map (fit on data)</text>
+        <text x="375" y="234" fill="#94a3b8" font-size="8" font-weight="700" text-anchor="middle">15% of the blend</text>
+
+        <!-- ============ STAGE 2: blend ============ -->
+        <rect x="270" y="250" width="130" height="50" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="335" y="271" fill="white" font-size="10" font-weight="600" text-anchor="middle">BLEND</text>
+        <text x="335" y="285" fill="#94a3b8" font-size="8" text-anchor="middle">0.85×mkt + 0.15×elo</text>
+
+        <!-- ============ STAGE 3: adjustments ============ -->
+        <rect x="400" y="340" width="160" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="480" y="360" fill="white" font-size="10" font-weight="600" text-anchor="middle">+ Adjustments (sides)</text>
+        <text x="480" y="374" fill="#94a3b8" font-size="8" text-anchor="middle">QB out −5.5 • starter −0.4</text>
+        <text x="480" y="388" fill="#94a3b8" font-size="8" text-anchor="middle">rest fade −0.5  |  cap ±2.5</text>
+
+        <rect x="400" y="460" width="200" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="500" y="480" fill="white" font-size="10" font-weight="600" text-anchor="middle">Totals adjustments</text>
+        <text x="500" y="494" fill="#94a3b8" font-size="8" text-anchor="middle">wind −2.7/−1.2 • close spread −1.3</text>
+        <text x="500" y="508" fill="#94a3b8" font-size="8" text-anchor="middle">blowout +0.8 • early season −1.0 • refs</text>
+        <text x="500" y="522" fill="#94a3b8" font-size="8" text-anchor="middle">cap ±3.5</text>
+
+        <!-- ============ STAGE 4: compare ============ -->
+        <rect x="540" y="340" width="160" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="620" y="360" fill="white" font-size="10" font-weight="600" text-anchor="middle">Model vs Market</text>
+        <text x="620" y="374" fill="#94a3b8" font-size="8" text-anchor="middle">model spread − market spread</text>
+        <text x="620" y="388" fill="#fbbf24" font-size="8" font-weight="700" text-anchor="middle">= EDGE in points</text>
+
+        <!-- ============ STAGE 5: probability engine ============ -->
+        <rect x="760" y="330" width="180" height="90" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="850" y="352" fill="white" font-size="10" font-weight="600" text-anchor="middle">Probability engine</text>
+        <text x="850" y="366" fill="#94a3b8" font-size="8" text-anchor="middle">normal CDF (SD 13.3 / 13.5)</text>
+        <text x="850" y="380" fill="#94a3b8" font-size="8" text-anchor="middle">cover prob → EV @ −110</text>
+        <text x="850" y="394" fill="#94a3b8" font-size="8" text-anchor="middle">→ ¼-Kelly stake</text>
+        <text x="850" y="410" fill="#fb7185" font-size="8" font-weight="700" text-anchor="middle">edge &lt; vig → "NO BET"</text>
+
+        <!-- ============ OUTPUTS ============ -->
+        <rect x="890" y="110" width="100" height="70" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="940" y="132" fill="white" font-size="10" font-weight="600" text-anchor="middle">Predictor tab</text>
+        <text x="940" y="146" fill="#94a3b8" font-size="8" text-anchor="middle">model line</text>
+        <text x="940" y="160" fill="#94a3b8" font-size="8" text-anchor="middle">edge • EV • stake</text>
+
+        <rect x="890" y="280" width="100" height="100" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="940" y="302" fill="white" font-size="10" font-weight="600" text-anchor="middle">Track Record</text>
+        <text x="940" y="318" fill="#94a3b8" font-size="8" text-anchor="middle">log picks ≥2 pts</text>
+        <text x="940" y="332" fill="#94a3b8" font-size="8" text-anchor="middle">grade at CLOSE</text>
+        <text x="940" y="350" fill="#a78bfa" font-size="8" text-anchor="middle">Turso picks table</text>
+
+        <rect x="890" y="480" width="100" height="60" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="4,4"/>
+        <text x="940" y="502" fill="white" font-size="10" font-weight="600" text-anchor="middle">Season report</text>
+        <text x="940" y="516" fill="#94a3b8" font-size="8" text-anchor="middle">W-L • edge buckets</text>
+        <text x="940" y="530" fill="#94a3b8" font-size="8" text-anchor="middle">calibration</text>
+
+        <!-- ============ LEGEND ============ -->
+        <text x="30" y="640" fill="white" font-size="10" font-weight="600">Legend</text>
+        <rect x="30" y="652" width="16" height="10" rx="2" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="52" y="660" fill="#94a3b8" font-size="8">Input (free)</text>
+        <rect x="30" y="668" width="16" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="52" y="676" fill="#94a3b8" font-size="8">Input (house key)</text>
+        <rect x="30" y="684" width="16" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="52" y="692" fill="#94a3b8" font-size="8">Model stage</text>
+        <rect x="30" y="700" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="52" y="708" fill="#94a3b8" font-size="8">Grading / record</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header"><div class="card-dot emerald"></div><h3>Why market-first</h3></div>
+        <ul>
+          <li>• Backtest: pure Elo vs closing line = <b>51.1% ATS</b> (1,359 games) — below the 52.4% breakeven</li>
+          <li>• So the de-vigged book consensus IS the base (85%)</li>
+          <li>• Elo (15%) = prior + sanity check + pre-lines mode</li>
+          <li>• The model only disagrees at the margins — and says "no bet" when the gap can't cover the vig</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot amber"></div><h3>Adjustments: what survived backtesting</h3></div>
+        <ul>
+          <li>• ✅ Home fav 7+: 62.5% ATS (n=112) — angle badge</li>
+          <li>• ✅ Wind 15+ mph: 60.9% under (n=87) — totals model</li>
+          <li>• ✅ Wind 10-14: 57.9% under (n=178)</li>
+          <li>• ✅ Close spread ≤3: 57.5% under (n=518)</li>
+          <li>• 🔄 Rest edge INVERTED (rested teams 47%) → we fade</li>
+          <li>• ❌ Killed: divisional dogs (46.9%), TNF trends, body clock, cold-weather unders</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot violet"></div><h3>Honesty plumbing</h3></div>
+        <ul>
+          <li>• Every ≥2 pt edge gets logged daily with timestamp (sides + totals)</li>
+          <li>• Graded against the <b>closing line</b> — the harsh, honest number</li>
+          <li>• Track Record shows W-L, profit, edge buckets, calibration</li>
+          <li>• If bigger edges don't win more, the model is noise — the page will show it</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">NFL Edge Finder • model pipeline • predictor.py + tracker.py</p>
+  </div>
+</body>
+</html>

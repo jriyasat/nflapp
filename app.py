@@ -140,6 +140,13 @@ USER = st.session_state.get("username", "jeff")
 NAME = st.session_state.get("name", USER)
 IS_ADMIN = db.user_level(USER) == "admin"
 
+# top-of-page link to the explainer (hidden when already on it)
+if (st.session_state.get("nav_radio") != "❓ How It Works"
+        and st.session_state.get("_goto") != "❓ How It Works"):
+    if st.button("❓ HOW THE PREDICTOR WORKS", type="secondary"):
+        st.session_state["_goto"] = "❓ How It Works"
+        st.rerun()
+
 # full-screen loading overlay: shown while the rest of the script runs,
 # cleared at the end of every page path
 _loading = st.empty()
@@ -255,9 +262,11 @@ except Exception:
     nv_injuries, nv_status = {}, "unavailable"
 
 st.sidebar.markdown(f"**{len(week_games)} games** loaded • injuries for {len(injuries)} teams")
-views = (["Games", "📒 Bet Journal", "📈 Track Record", "⚙️ Settings"]
+views = (["Games", "📒 Bet Journal", "📈 Track Record", "❓ How It Works", "⚙️ Settings"]
          + (["👥 Users"] if IS_ADMIN else []))
-page = st.sidebar.radio("View", views)
+if "_goto" in st.session_state:
+    st.session_state["nav_radio"] = st.session_state.pop("_goto")
+page = st.sidebar.radio("View", views, key="nav_radio")
 
 # ---------------- bet journal page ----------------
 def journal_page():
@@ -319,6 +328,65 @@ def journal_page():
 
 if page == "📒 Bet Journal":
     journal_page()
+    _loading.empty()
+    st.stop()
+
+# ---------------- how-it-works page ----------------
+def help_page():
+    st.header("❓ How the Predictor Works")
+    st.caption("The short version of what every number on the Predictor tab means.")
+
+    st.subheader("🤖 Model line")
+    st.markdown("The model's **fair spread** for the game. It's built from three parts: "
+                "**85%** the de-vigged consensus of every sportsbook, **15%** our Elo ratings, "
+                "plus small backtest-proven adjustments (injuries, rest). "
+                "*Example: 'SEA -3.4' means the model thinks Seattle should be favored by 3.4 points.*")
+
+    st.subheader("📚 Market")
+    st.markdown("The number the **sportsbooks are actually dealing** right now. The arrow note "
+                "beneath tells you the source: **'9 book(s)'** = the median of 9 live books; "
+                "**'nflverse current line'** = the reference line when live books aren't loaded. "
+                "The market is the toughest opponent in sports betting — the model never fades it without a reason.")
+
+    st.subheader("⚡ Edge")
+    st.markdown("**Model minus market, in points**, for the team named. "
+                "**'within noise'** = the gap is under 1.5 points — ordinary disagreement, ignore it. "
+                "**'value'** = the gap is 1.5+ — the model genuinely disagrees with the books. "
+                "*Example: 'Edge 2.3 pts on CAR' = the model likes Carolina 2.3 points more than the market does.*")
+
+    st.subheader("🎚️ Model total")
+    st.markdown("The model's fair **combined-points** line: the market total plus validated "
+                "adjustments (wind, tight spreads, early season, referee). The note beneath — "
+                "*'mkt 44.0 → UNDER 1.0'* — means the model's number is 1.0 lower than the market's, "
+                "so the lean is UNDER by 1.0 point.")
+
+    st.subheader("💰 When is a bet suggested?")
+    st.markdown("""
+- **Only when EV is positive** — the edge beats the book's cut (the vig). That's the whole game.
+- **≥1.5 pts** → the Edge card flips to **'value'**
+- **≥2 pts** → logged as an official model pick on the 📈 Track Record page and graded at the closing line
+- **Stake** → the ¼-Kelly column (a fraction of your bankroll)
+- **Everything else → NO BET.** Most games are no-bets. That's discipline, not a bug.
+""")
+
+    st.subheader("📺 45-second video version")
+    vcol, _ = st.columns([3, 2])
+    with vcol:
+        st.video("https://www.youtube.com/watch?v=VXGviaMi03E")
+
+    st.subheader("🗺️ The diagrams")
+    d1, d2 = st.columns(2)
+    with d1:
+        st.markdown("[![Data map](/app/static/data-map-preview.png)](/app/static/data-map.html)")
+        st.caption("⤴ Data map — click to open the full interactive version")
+    with d2:
+        st.markdown("[![Model pipeline](/app/static/model-diagram-preview.png)](/app/static/model-diagram.html)")
+        st.caption("⤴ Model pipeline — click to open the full interactive version")
+
+    st.caption("Want the deep dive with backtest numbers? Click the ❓ next to 'Model line' on any Predictor tab.")
+
+if page == "❓ How It Works":
+    help_page()
     _loading.empty()
     st.stop()
 
