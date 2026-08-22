@@ -389,8 +389,10 @@ def espn_news(limit=50):
         data = _get_json(ESPN_NEWS, "espn_news.json", 15, params={"limit": limit}, service="espn")
         for a in data.get("articles", []):
             link = (a.get("links", {}).get("web", {}) or {}).get("href", "")
+            imgs = a.get("images", [])
             out.append({"title": a.get("headline", ""), "desc": a.get("description", ""),
-                        "link": link, "published": a.get("published", ""), "source": "ESPN"})
+                        "link": link, "published": a.get("published", ""), "source": "ESPN",
+                        "img": imgs[0].get("url", "") if imgs else ""})
     except Exception:
         pass
     return out
@@ -417,10 +419,14 @@ def cbs_news():
                 pub = parsedate_to_datetime(pub).isoformat()
             except Exception:
                 pass
+            img = ""
+            enc = item.find("enclosure")
+            if enc is not None:
+                img = enc.get("url", "")
             out.append({"title": (item.findtext("title") or "").strip(),
                         "desc": (item.findtext("description") or "").strip()[:280],
                         "link": (item.findtext("link") or "").strip(),
-                        "published": pub, "source": "CBS"})
+                        "published": pub, "source": "CBS", "img": img})
     except Exception:
         pass
     return out
