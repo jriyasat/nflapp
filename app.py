@@ -118,7 +118,7 @@ working, the numbers will say so.
 - **Vig (juice)** — the bookmaker's built-in cut. It's why both sides are -110 instead of +100, and why you must win 52.4% to break even.
 - **De-vig** — removing that cut from the odds to reveal the book's *true* implied probability. That's how we find the real market price.
 - **Closing line** — the final spread/total right before kickoff. The smartest number in betting — beating it consistently = real edge.
-- **Elo** — a chess-style rating system: teams gain points for winning, lose for losing, adjusted for opponent strength and margin.
+- **Elo** — a power rating per team (borrowed from chess). The gap between two ratings predicts the winner: +100 points ≈ 64% win chance, +200 ≈ 76%. Win and you take points from your opponent; upsets move ratings, expected wins barely do. Ours: home field = 48 pts (≈2 pts of spread), ratings pull ⅓ back to average each offseason. Full mini-lesson: the **❓ How It Works** page.
 - **Cover probability** — the model's estimated chance a side covers. 55% means it expects to win that bet ~55 times out of 100.
 - **EV (expected value)** — average profit per dollar bet, long run. +3% EV ≈ +$3 per $100 over many bets. Negative EV = the vig eats you.
 - **Kelly / ¼-Kelly** — a formula for bet sizing from edge size. Full Kelly is aggressive; we show a quarter of it (¼-Kelly) to keep swings survivable.
@@ -395,6 +395,30 @@ def help_page():
 - **≥2 pts** → logged as an official model pick on the 📈 Track Record page and graded at the closing line
 - **Stake** → the ¼-Kelly column (a fraction of your bankroll)
 - **Everything else → NO BET.** Most games are no-bets. That's discipline, not a bug.
+""")
+
+    st.subheader("📐 What is Elo, anyway?")
+    st.markdown("""
+Elo is a **power rating** — one number per team. The whole idea: **the gap between two
+teams' ratings predicts who wins.** A team rated 100 points higher wins about 64% of the
+time; 200 points higher, about 76%. Ratings move after every game: win and you take points
+from your opponent — beat a *good* team and you take more, lose to a *bad* team and you lose more.
+
+**The actual math (one line each, promise):**
+
+- **Win chance:** `1 / (1 + 10^(-(rating gap + home bonus)/400))`
+  *Example: Seattle (1703) at home vs a 1550 team → gap 153 + 48 home bonus = 201 → ~76% win chance.*
+- **Update after the game:** `new rating = old + 20 × (actual result − expected)`, scaled by margin
+  *Seattle wins as a 76% favorite: +20 × (1 − 0.76) ≈ +5 points. Barely moves — it was expected.
+  If they'd LOST: −20 × 0.76 ≈ −15. Upsets move ratings; chalk doesn't.*
+
+**Our version, specifically:** home field is worth ~48 Elo points (≈2 points of spread),
+winning big counts more (with a dampener so running it up doesn't), and every offseason
+ratings pull one-third of the way back to average (1500) — rosters change, so last year
+only counts so much.
+
+**The honest part:** Elo alone picked 51.1% against the closing line over 5 seasons — below
+breakeven. That's exactly why it's only 15% of our model: a smart prior, not the prediction.
 """)
 
     st.subheader("📺 45-second video version")
