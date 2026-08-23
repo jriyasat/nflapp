@@ -346,6 +346,17 @@ def set_password(username, pw_hash):
     _creds_invalidate()
 
 
+LEVELS = ("user", "paid", "admin")
+
+
+def set_level(username, level):
+    """user = free tier, paid = full features, admin = full + admin pages."""
+    assert level in LEVELS, f"bad level {level!r}"
+    with _connect() as c:
+        c.execute("UPDATE users SET level=? WHERE username=?", (level, username))
+    _creds_invalidate()
+
+
 def user_level(username):
     with _connect() as c:
         r = c.execute("SELECT level FROM users WHERE username=?", (username,)).fetchone()

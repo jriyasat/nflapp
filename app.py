@@ -14,6 +14,7 @@ import analytics as an
 import auth_setup
 import data as dl
 import db
+import emailer
 import journal
 import predictor as pr
 import props_model as pm
@@ -121,7 +122,20 @@ if st.session_state.get("authentication_status") is not True:
     st.stop()
 USER = st.session_state.get("username", "jeff")
 NAME = st.session_state.get("name", USER)
-IS_ADMIN = db.user_level(USER) == "admin"
+LEVEL = db.user_level(USER)
+IS_ADMIN = LEVEL == "admin"
+IS_PAID = LEVEL in ("admin", "paid")  # full feature access (admins included)
+CONTACT_EMAIL = "jeff.riyasat@gmail.com"
+
+
+def paywall(feature):
+    """Upgrade wall shown to free-tier users behind gated features."""
+    st.info(f"🔒 **{feature}** is a **Pro** feature.")
+    st.markdown(
+        "Pro unlocks: 🎰 **Player Props** (injury-aware projections vs live lines) · "
+        "🧩 **SGP correlation finder** · 📒 **Bet Journal + CLV tracker** · "
+        "📧 **daily email brief**\n\n"
+        f"👉 To upgrade, contact us at [{CONTACT_EMAIL}](mailto:{CONTACT_EMAIL}).")
 
 # top-of-page link to the explainer (hidden when already on it)
 if (st.session_state.get("nav_radio") != "❓ How It Works"
@@ -175,8 +189,11 @@ def team_inj_map(team):
 
 # ---------------- sidebar ----------------
 st.sidebar.header("Controls")
-st.sidebar.markdown(f"👤 **{NAME}**{' · 🛠️ admin' if IS_ADMIN else ''}")
+_badge = {"admin": "🛠️ admin", "paid": "⭐ pro"}.get(LEVEL, "free")
+st.sidebar.markdown(f"👤 **{NAME}** · {_badge}")
 authenticator.logout("🚪 Log out", "sidebar")
+st.sidebar.caption("21+ · Entertainment & informational purposes only — not betting advice. "
+                   "If gambling stops being fun: **1-800-GAMBLER**. See **📜 Terms**.")
 season, week = dl.current_season_week(games)
 season = st.sidebar.number_input("Season", 2020, 2030, season)
 weeks = sorted(games[(games["season"] == season) & (games["game_type"] == "REG")]["week"].unique())
@@ -253,7 +270,7 @@ except Exception:
 
 st.sidebar.markdown(f"**{len(week_games)} games** loaded • injuries for {len(injuries)} teams")
 views = (["Games", "📒 Bet Journal", "📈 Track Record", "🏆 Pick'em", "📰 News", "🏅 Standings",
-          "❓ How It Works", "⚙️ Settings"] + (["👥 Users"] if IS_ADMIN else []))
+          "❓ How It Works", "📜 Terms", "⚙️ Settings"] + (["👥 Users"] if IS_ADMIN else []))
 if "_goto" in st.session_state:
     st.session_state["nav_radio"] = st.session_state.pop("_goto")
 page = st.sidebar.radio("View", views, key="nav_radio")
@@ -335,6 +352,10 @@ def journal_page():
             st.rerun()
 
 if page == "📒 Bet Journal":
+    if not IS_PAID:
+        st.header("📒 Bet Journal + CLV Tracker")
+        paywall("The Bet Journal + CLV Tracker")
+        st.stop()
     journal_page()
     st.stop()
 
@@ -583,6 +604,60 @@ if page == "❓ How It Works":
     help_page()
     st.stop()
 
+# ---------------- terms / disclaimer page ----------------
+TERMS_MD = """
+**Last updated: August 2026**
+
+**1. What this is.** NFL Edge Finder ("the Service") is an analytics and entertainment
+tool that displays publicly available sports data, statistical models, and historical
+backtest results. It is **not** a sportsbook: we do not accept, place, or settle wagers
+of any kind.
+
+**2. Entertainment & informational purposes only.** Nothing in the Service — predictions,
+"edges," projections, suggested stakes, or any other content — constitutes financial,
+investment, or legal advice, or a recommendation to place any bet. Sports outcomes are
+inherently uncertain; **past performance (including backtests) does not guarantee future
+results.** You can lose money. Any betting decision you make is yours alone.
+
+**3. 21+ only.** The Service is intended for users aged 21 or older. By using it you
+represent that you are 21+ and that sports betting is legal in your jurisdiction. You are
+solely responsible for complying with the laws where you live.
+
+**4. No warranty.** The Service is provided **"as is" and "as available,"** with no
+warranties of any kind, express or implied — including accuracy, completeness, uptime,
+or fitness for a particular purpose. Data feeds (odds, injuries, weather) come from third
+parties and may be delayed, wrong, or unavailable.
+
+**5. Limitation of liability.** To the maximum extent permitted by law, the Service and
+its operator(s) are not liable for any losses — including gambling losses, lost profits,
+or indirect/consequential damages — arising from use of, or inability to use, the Service.
+If you are a paying subscriber, total liability is capped at the amount you paid in the
+3 months before the claim.
+
+**6. Responsible gambling.** Bet only what you can afford to lose. If gambling stops
+being fun, help is available 24/7: **call or text 1-800-GAMBLER** (US National Problem
+Gambling Helpline) or visit ncpgambling.org.
+
+**7. Accounts.** You are responsible for keeping your password confidential and for
+activity under your account. We may suspend accounts that abuse the Service (sharing
+logins, scraping, reselling access).
+
+**8. Changes.** We may update these terms; continued use after changes means acceptance.
+The "last updated" date above always reflects the current version.
+
+**9. Contact.** Questions about these terms: jeff.riyasat@gmail.com.
+"""
+
+
+def terms_page():
+    st.header("📜 Terms of Use & Disclaimer")
+    st.markdown(TERMS_MD)
+
+
+if page == "📜 Terms":
+    terms_page()
+    st.stop()
+
 # ---------------- admin: user management page ----------------
 def users_page():
     st.header("👥 User Management")
@@ -590,7 +665,8 @@ def users_page():
         c1, c2 = st.columns(2)
         fname = c1.text_input("First name", key="new_fname")
         email = c2.text_input("Email", key="new_email")
-        level = st.selectbox("Level", ["user", "admin"], key="new_level")
+        level = st.selectbox("Level", list(db.LEVELS), index=1, key="new_level",
+                             help="user = free tier · paid = full features · admin = full + this page")
         if st.button("Create user"):
             uname = fname.strip().lower()
             if not uname:
@@ -605,11 +681,25 @@ def users_page():
                            f"it won't be shown again:")
                 st.code(pw)
     st.subheader("Accounts")
+    _lvl_label = {"user": "free", "paid": "⭐ pro", "admin": "🛠️ admin"}
     for u in db.list_users():
-        cols = st.columns([2, 3, 1.5, 2, 1.5])
+        cols = st.columns([2, 3, 1.8, 2, 1.5])
         cols[0].markdown(f"**{u['name']}** (`{u['username']}`)")
         cols[1].markdown(u["email"] or "—")
-        cols[2].markdown("🛠️ admin" if u["level"] == "admin" else "user")
+        if u["username"] != USER:
+            new_lvl = cols[2].selectbox("Level", list(db.LEVELS), key=f"lvl_{u['username']}",
+                                        index=list(db.LEVELS).index(u["level"]),
+                                        format_func=lambda l: _lvl_label[l],
+                                        label_visibility="collapsed")
+            if new_lvl != u["level"]:
+                if u["level"] == "admin" and db.admin_count() <= 1:
+                    st.error("Can't demote the last admin.")
+                else:
+                    db.set_level(u["username"], new_lvl)
+                    st.success(f"**{u['username']}** → {_lvl_label[new_lvl]}")
+                    st.rerun()
+        else:
+            cols[2].markdown(_lvl_label[u["level"]])
         if u["username"] != USER:
             if cols[3].button("🔑 Reset password", key=f"rst_{u['username']}"):
                 pw = "edge-" + secrets.token_urlsafe(5)
@@ -622,6 +712,30 @@ def users_page():
                 st.rerun()
         else:
             cols[3].caption("(that's you)")
+
+    st.subheader("📣 Email all users")
+    if not emailer.configured():
+        st.caption("⚠️ Email not configured yet — needs RESEND_API_KEY + RESEND_FROM in "
+                   "secrets (domain verification walkthrough: docs/BUSINESS.md §email).")
+    else:
+        with st.form("broadcast_form"):
+            b_subj = st.text_input("Subject")
+            b_body = st.text_area("Message (plain text)")
+            if st.form_submit_button("Send to all users with emails"):
+                recips = [u["email"] for u in db.list_users() if u["email"]]
+                if not (b_subj.strip() and b_body.strip()):
+                    st.error("Subject and message are both required.")
+                elif not recips:
+                    st.warning("No users have email addresses saved.")
+                else:
+                    sent, errors = emailer.broadcast(
+                        recips, b_subj.strip(),
+                        emailer.brief_html(b_body.strip(),
+                                           footer_note="Announcement from NFL Edge Finder."))
+                    if errors:
+                        st.warning(f"Sent to {sent}/{len(recips)}. Errors: {'; '.join(errors)}")
+                    else:
+                        st.success(f"✅ Sent to all {sent} users.")
 
 if page == "👥 Users":
     if not IS_ADMIN:
@@ -661,11 +775,16 @@ def settings_page():
             db.update_email(USER, new_email.strip())
             st.success("Email saved ✅")
             st.rerun()
-        email_on = st.checkbox("Send me the daily email brief",
-                               value=bool(me["email_enabled"]),
-                               disabled=not (me["email"] or new_email.strip()))
-        if not (me["email"] or new_email.strip()):
-            st.caption("Add your email above to enable this.")
+        if IS_PAID:
+            email_on = st.checkbox("Send me the daily email brief",
+                                   value=bool(me["email_enabled"]),
+                                   disabled=not (me["email"] or new_email.strip()))
+            if not (me["email"] or new_email.strip()):
+                st.caption("Add your email above to enable this.")
+        else:
+            email_on = False
+            st.caption("🔒 The daily email brief is a **Pro** feature — "
+                       "contact us to upgrade.")
     with tg_col:
         st.markdown("**📱 Daily Telegram brief**")
         if me["telegram_chat_id"]:
@@ -1041,9 +1160,15 @@ for gi, (_, g) in enumerate(week_games.iterrows()):
         with tabs[0]:
             predictor_tab(g, away, home)
         with tabs[1]:
-            props_tab(g, away, home)
+            if IS_PAID:
+                props_tab(g, away, home)
+            else:
+                paywall("Player Props")
         with tabs[2]:
-            sgp_tab(g, away, home)
+            if IS_PAID:
+                sgp_tab(g, away, home)
+            else:
+                paywall("The SGP correlation finder")
         with tabs[3]:
             lines_block(away, home, espn_odds.get((away, home)), books_by_abbr.get((away, home)))
         with tabs[4]:
