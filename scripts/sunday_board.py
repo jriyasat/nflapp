@@ -60,18 +60,51 @@ def main():
                   f"totals {s['total']['record']}, {s['pending']} pending"
                   if n_graded else "📈 *MODEL SEASON RECORD* — starts grading Week 1.")
 
-    # injuries
+    # injuries — per-team summary for teams playing this week
     try:
         nv, _ = dl.nflverse_injuries(season)
     except Exception:
         nv = {}
-    out_d = [(p["name"], t, p.get("status", "")) for t, blk in nv.items()
-             for p in blk.get("rows", []) if p.get("status") in ("Out", "Doubtful")]
-    q = sum(1 for blk in nv.values() for p in blk.get("rows", [])
-            if p.get("status") == "Questionable")
-    if out_d or q:
-        names = ", ".join(f"{n} ({t}, {st})" for n, t, st in out_d[:6]) or "none Out/Doubtful"
-        inj_sec = f"🏥 *INJURY WATCH* — {len(out_d)} Out/Doubtful, {q} Questionable\n• {names}"
+    DESIG = ("Out", "Doubtful", "Questionable")
+    teams_wk = sorted(set(wk["away_team"]) | set(wk["home_team"]))
+    # key players = the ones our props model projects (betting-relevant)
+    key_names = {}
+    try:
+        import props_model as pm
+        ps = dl.load_player_stats()
+        defs = pm.defense_multipliers(ps)
+        opp_of = {}
+        for _, g in wk.iterrows():
+            opp_of[g["away_team"]] = g["home_team"]
+            opp_of[g["home_team"]] = g["away_team"]
+        for t in teams_wk:
+            try:
+                res = pm.project_game(ps, defs, t, opp_of.get(t, t), per_pos=2)
+                key_names[t] = {p["player"] for p in res["players"]}
+            except Exception:
+                key_names[t] = set()
+    except Exception:
+        key_names = {t: set() for t in teams_wk}
+
+    sev_rank = {"Out": 0, "Doubtful": 1, "Questionable": 2}
+    sev_short = {"Out": "Out", "Doubtful": "D", "Questionable": "Q"}
+    inj_lines = []
+    for t in teams_wk:
+        prows = [p for p in nv.get(t, {}).get("rows", []) if p.get("status") in DESIG]
+        if not prows:
+            continue
+        prows.sort(key=lambda p: sev_rank.get(p["status"], 3))
+        keys = [p for p in prows if p["name"] in key_names.get(t, set())][:2]
+        for p in prows:  # fill to 2 with most severe if needed
+            if len(keys) >= 2:
+                break
+            if p not in keys:
+                keys.append(p)
+        key_txt = ", ".join(f"{p['name']} ({sev_short.get(p['status'], p['status'])}"
+                            f"{' — ' + p['detail'] if p.get('detail') else ''})" for p in keys)
+        inj_lines.append(f"• **{t}** ({len(prows)} designated): {key_txt}")
+    if inj_lines:
+        inj_sec = "🏥 *INJURY WATCH — by team (count = Out/D/Q designated)*\n" + "\n".join(inj_lines)
     else:
         inj_sec = "🏥 *INJURY WATCH* — no official designations yet (first report drops game week)."
 
