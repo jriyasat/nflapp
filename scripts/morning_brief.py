@@ -253,6 +253,8 @@ def main():
 
     # ---- fan-out to opted-in users (email + telegram DMs); each gets THEIR recap ----
     try:
+        sys.path.insert(0, "/Users/jeff/nfl-edge")
+        import emailer
         import notify
         for u in db.list_users():
             try:
@@ -263,8 +265,11 @@ def main():
                 else:
                     urec = []
                 user_full = header + "\n" + "\n\n".join(model_rec + urec + sections)
-                if u.get("email_enabled") and u.get("email"):
-                    notify.send_email(u["email"], f"NFL Edge Brief — {today}", user_full)
+                # email brief is a Pro feature (admin/paid only)
+                if (u.get("email_enabled") and u.get("email")
+                        and u.get("level", "user") in ("admin", "paid")):
+                    emailer.send_email(u["email"], f"NFL Edge Brief — {today}",
+                                       emailer.brief_html(user_full))
                 if u.get("telegram_enabled") and u.get("telegram_chat_id"):
                     notify.send_telegram(u["telegram_chat_id"], user_full)
             except Exception:

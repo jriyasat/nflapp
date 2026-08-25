@@ -716,9 +716,12 @@ def users_page():
 
     st.subheader("📣 Email all users")
     if not emailer.configured():
-        st.caption("⚠️ Email not configured yet — needs RESEND_API_KEY + RESEND_FROM in "
-                   "secrets (domain verification walkthrough: docs/BUSINESS.md §email).")
+        st.caption("⚠️ Email not configured yet — needs Gmail or Resend credentials "
+                   "(see docs/BUSINESS.md §email).")
     else:
+        st.caption(f"Transport: **{emailer.transport()}**"
+                   + (" — upgrade to Resend for better deliverability at scale "
+                      "(docs/BUSINESS.md §email)" if emailer.transport() == "gmail" else ""))
         with st.form("broadcast_form"):
             b_subj = st.text_input("Subject")
             b_body = st.text_area("Message (plain text)")

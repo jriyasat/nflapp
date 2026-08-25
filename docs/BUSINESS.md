@@ -15,6 +15,11 @@
 | Email | Resend (free tier, 100/day) + purchased sending domain |
 | Disclaimer | Generic US (no state governing-law clause), 21+, 1-800-GAMBLER |
 
+## Shipped (Aug 24 update)
+
+- ✅ **Email is LIVE via Gmail SMTP** (`emailer.py` auto-selects: Resend if configured, else Gmail app password — already in secrets). Daily brief emails, inactives alerts, and the 📣 broadcast form all work today. Jeff opted in (jeff.riyasat@gmail.com). Brief fan-out now enforces the Pro tier (admin/paid only).
+- Domain + Resend remains the **deliverability upgrade path** for when the list grows (below) — no longer a blocker.
+
 ## Shipped (Aug 22)
 
 - ✅ **📜 Terms page** — full Terms of Use & Disclaimer (entertainment-only, 21+, liability cap, responsible gambling) + persistent sidebar footer on every page
