@@ -177,10 +177,11 @@ def get_user_settings(username):
     return db.get_user(username)
 
 @st.cache_data(ttl=3600)
-def get_projections(team, opp, inj_items):
+def get_projections(team, opp, inj_items, team_line=None):
     """Memoized per-matchup projections (the heaviest per-rerun compute).
     inj_items: tuple(sorted(injuries.items())) for hashability."""
-    return pm.project_game(player_stats, def_mults, team, opp, injuries=dict(inj_items))
+    return pm.project_game(player_stats, def_mults, team, opp,
+                           injuries=dict(inj_items), team_line=team_line)
 
 def team_inj_map(team):
     m = {r["name"]: r["status"]
@@ -1033,10 +1034,16 @@ def props_tab(g, away, home):
     if player_stats is None:
         st.warning("Player stats feed unavailable right now.")
         return
+    # team lines (negative = favored) for the v2 rushing game-script factor
+    mkt = pr.consensus(books_by_abbr.get((away, home)))
+    hs = mkt.get("home_spread")
+    if hs is None and pd.notna(g.get("spread_line")):
+        hs = -float(g["spread_line"])  # nflverse is away-perspective -> flip to home
     lines = st.session_state.get(f"props_{away}_{home}", {})
     for team, opp in ((away, home), (home, away)):
         st.markdown(f"**{team}** (vs {opp})")
-        res = get_projections(team, opp, team_inj_map(team))
+        tl = (-hs if team == away else hs) if hs is not None else None
+        res = get_projections(team, opp, team_inj_map(team), tl)
         # 🧪 injury what-if simulator: pretend any player is OUT, watch volume reshuffle
         sim = st.multiselect(f"🧪 Simulate OUT ({team})",
                              [p["player"] for p in res["players"]],
@@ -1046,7 +1053,7 @@ def props_tab(g, away, home):
             inj = dict(team_inj_map(team))
             for nm in sim:
                 inj[nm] = "Out"
-            res = get_projections(team, opp, tuple(sorted(inj.items())))
+            res = get_projections(team, opp, tuple(sorted(inj.items())), tl)
         for w in res["warnings"]:
             st.error(w)
         if res["benched"]:
@@ -1058,6 +1065,8 @@ def props_tab(g, away, home):
             name = p["player"] + (" ⚠️" if p.get("flag") else "")
             if p.get("boost"):
                 name += f" ↑{p['boost']:.2f}x"
+            if p.get("rush_v2"):
+                name += " ⚡"
             row = {"Player": name, "Pos": p["pos"], "G": p["games"]}
             for col, label in PROJ_COLS:
                 v = p.get(col)
@@ -1076,7 +1085,9 @@ def props_tab(g, away, home):
             rows.append(row)
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     if lines:
-        st.caption("Format: **projection | line lean ±edge (%)** — 🟢 = edge ≥8%. Lines = median across books.")
+        st.caption("Format: **projection | line lean ±edge (%)** — 🟢 = edge ≥8%. "
+                   "Lines = median across books. ⚡ = v2 rushing model (backtest-validated: "
+                   "61% lean hit 2023-25, see docs/BACKTESTS.md).")
     elif api_key:
         if st.button(f"📡 Load live prop lines (~4 API credits)", key=f"loadprops_{away}_{home}"):
             used = db.usage_today(USER, "prop_load")

@@ -27,6 +27,20 @@ POS_BY_MARKET = {
 }
 USAGE_COL = {"QB": "attempts", "RB": "carries", "WR/TE": "targets"}
 
+# --- v2 rushing model (backtest-validated, scripts/backtest_props_v2.py) ---
+# Gate results 2023-25: beats v1 AND naive-line MAE; lean hit 61% (n=1199),
+# consistent 61/59/63% per season. Rush-only: rec/pass v2 FAILED the gate
+# and stay on v1. Fit on 2021-25 team-week data (neg team_line = favored):
+RUSH_SCRIPT_SLOPE = -0.2284   # team rush attempts per pt of team_line
+RUSH_ATT_MEAN = 26.92         # league mean team rush attempts/game
+
+
+def script_rush(team_line):
+    """Game-script rush-volume factor: favorites run more. 1.0 when no line."""
+    if team_line is None:
+        return 1.0
+    return float(min(max(1 + RUSH_SCRIPT_SLOPE * team_line / RUSH_ATT_MEAN, 0.85), 1.15))
+
 
 def _weights(n):
     return [0.5 ** (i / HALFLIFE) for i in range(n)]
@@ -82,16 +96,21 @@ def hit_rate(ps, player_id, proj_col, line, last_n=10):
     return {"n": len(g), "overs": overs, "unders": unders}
 
 
-def project_game(ps, defs, team, opponent, per_pos=2, injuries=None):
+def project_game(ps, defs, team, opponent, per_pos=2, injuries=None, team_line=None):
     """Projections for one team's key players vs an opponent.
 
     injuries: {player_name: status} from the official report. Out/Doubtful
     players are benched and 60% of their vacated volume is redistributed to
     remaining players in the same position group. Questionable -> flagged.
+    team_line: team's spread for this game (negative = favored) — drives the
+    v2 rushing model's game-script factor.
 
     Returns {"players": [...], "benched": [...], "warnings": [...]}."""
     reg = ps[(ps["team"] == team) & (ps["season_type"] == "REG")].copy()
     reg = reg.sort_values(["season", "week"], ascending=False)
+    # team rush volume per week (for v2 carry-share model)
+    team_rush = (reg.groupby(["season", "week"])["carries"].sum()
+                 .rename("team_rush_att").reset_index())
     inj = {_norm(k): v for k, v in (injuries or {}).items()}
     players, benched, warnings = [], [], []
     for pos, grp in (("QB", ["QB"]), ("RB", ["RB"]), ("WR/TE", ["WR", "TE"])):
@@ -121,15 +140,35 @@ def project_game(ps, defs, team, opponent, per_pos=2, injuries=None):
                 continue
             w = _weights(len(g))
             mult = defs.get(pos, {}).get(opponent, 1.0)
+            # v2 rushing (backtest-validated): carry share x team rush volume x
+            # game script x volume-weighted YPC x opponent. RB only.
+            rush_v2 = False
+            if ppos == "RB":
+                gm = g.merge(team_rush, on=["season", "week"], how="left")
+                tra = gm["team_rush_att"].fillna(0).tolist()
+                carries = gm["carries"].fillna(0).tolist()
+                yards = gm["rushing_yards"].fillna(0).tolist()
+                share_c = _wavg([c / t if t > 0 else 0.0 for c, t in zip(carries, tra)], w)
+                team_att = _wavg(tra, w)
+                tot_car = sum(c * wi for c, wi in zip(carries, w))
+                ypc = sum(y * wi for y, wi in zip(yards, w)) / tot_car if tot_car > 0 else 0.0
+                proj_rush = round(share_c * team_att * script_rush(team_line) * ypc
+                                  * defs["RB"].get(opponent, 1.0) * boost, 1)
+                rush_v2 = True
+            elif ppos == "QB":
+                proj_rush = round(_wavg(g["rushing_yards"].fillna(0).tolist(), w), 1)
+            else:
+                proj_rush = None
             row = {
                 "player": name, "pos": ppos, "team": team, "games": len(g),
                 "proj_pass": round(_wavg(g["passing_yards"].fillna(0).tolist(), w) * (defs["QB"].get(opponent, 1.0) if ppos == "QB" else 1), 1) if ppos == "QB" else None,
-                "proj_rush": round(_wavg(g["rushing_yards"].fillna(0).tolist(), w) * (defs["RB"].get(opponent, 1.0) if ppos == "RB" else 1) * (boost if ppos == "RB" else 1), 1) if ppos in ("RB", "QB") else None,
+                "proj_rush": proj_rush,
                 "proj_rec_yds": round(_wavg(g["receiving_yards"].fillna(0).tolist(), w) * mult * boost, 1) if ppos in ("WR", "TE", "RB") else None,
                 "proj_rec": round(_wavg(g["receptions"].fillna(0).tolist(), w) * mult * boost, 1) if ppos in ("WR", "TE", "RB") else None,
                 "opp_mult": round(mult, 3),
                 "flag": st or "",
                 "boost": round(boost, 2) if boost != 1.0 else None,
+                "rush_v2": rush_v2,
             }
             players.append(row)
     return {"players": players, "benched": benched, "warnings": warnings}

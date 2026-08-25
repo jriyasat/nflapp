@@ -47,6 +47,25 @@ freshness-gate the module.
 | Rest 3+ days | 47.0% ATS (n=285) | ✅ fade −0.5 |
 | Totals adjustments | see backtest_totals.py | ✅ in production |
 
+## Props v2 backtest (`scripts/backtest_props_v2.py`, Aug 24 2026)
+
+Opportunity × efficiency + game script, walk-forward 2023–25 (burn-in 2021–22),
+snap-% role gate, graded on MAE vs v1 and vs naive trailing-10 line + lean hit-rate:
+
+| Market | MAE gate | Lean hit vs naive (≥7.5%) | Per-season | Verdict |
+|---|---|---|---|---|
+| **Rush yds** | **PASS** (26.4 vs v1 26.6, naive 27.5) | **61.1%** (n=1,199) | 61/59/63% | ✅ **in production (rush-only)** |
+| Receptions | FAIL (1.62 vs 1.59/1.61) | 52.9% | 53/52/54% | ❌ stays v1 |
+| Rec yds | FAIL | 51.5% | 51/51/52% | ❌ stays v1 |
+| Pass yds | FAIL badly (79.6 vs 69.7) | 54.0% | 53/56/53% | ❌ stays v1 |
+
+**Decision (Aug 24): v2 rushed into production for RB rush yards only** (carry
+share × team rush volume × script factor × YPC × opp; script fit 2021–25:
+−0.2284 rush att/pt of team_line). Rec/pass remain v1. Caveat: lean test used
+naive trailing-10 as line proxy; real books are smarter — final exam is live
+CLV/hit-rate in the app. Rushing's edge mechanism: carry share + game script
+is far more stable than receiving/QB variance.
+
 ## Sign-bug incident (Aug 24, 2026)
 
 Spread adjustments were applied with flipped sign (boosted injured/rested teams).
