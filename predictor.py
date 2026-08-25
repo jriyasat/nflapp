@@ -143,7 +143,7 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
         if pd.notna(game_row.get("total_line")):
             market["total"] = float(game_row["total_line"])
 
-    # adjustments, all on the "toward HOME" points axis (negative favors away).
+    # adjustments, all on the MARGIN axis: positive = toward HOME (negative favors away).
     # injury_adjustment() returns negative pts for the hurt team.
     adjs, total_adj = [], 0.0
     inj = injuries or {}
@@ -172,11 +172,13 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
             # derive spread from de-vigged prob via elo-fitted map
             pc = min(max(market["p_home"], 0.02), 0.98)
             base_spread = elo._a * math.log(pc / (1 - pc)) + elo._b
-        # blend: 85% market + 15% elo, then adjustments
-        model_spread = 0.85 * base_spread + 0.15 * elo_spread + total_adj
+        # blend: 85% market + 15% elo, then adjustments.
+        # NOTE: total_adj is on the MARGIN axis (positive = toward home) while
+        # model_spread is on the spread axis (negative = home favored) -> SUBTRACT.
+        model_spread = 0.85 * base_spread + 0.15 * elo_spread - total_adj
         p_market = market["p_home"]
     else:
-        model_spread = elo_spread + total_adj
+        model_spread = elo_spread - total_adj
         p_market = None
 
     # model spread -> cover prob for each side (margin ~ Normal(-spread, SD))

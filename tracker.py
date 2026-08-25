@@ -15,18 +15,24 @@ def load_picks():
     return db.load_picks()
 
 
-def log_predictions(games, elo, season, week, books_by_abbr=None, quiet=True):
-    """Log new picks for a week (deduped by game+pick_type). Returns new count."""
+def log_predictions(games, elo, season, week, books_by_abbr=None, espn_odds=None,
+                    injuries=None, quiet=True):
+    """Log new picks for a week (deduped by game+pick_type). Returns new count.
+
+    MUST receive the same context the app displays with (books + espn +
+    injuries) or the logged model diverges from the shown model."""
     existing = db.existing_pick_keys()
     wk = games[(games["season"] == season) & (games["game_type"] == "REG")
                & (games["week"] == week)]
     books_by_abbr = books_by_abbr or {}
+    espn_odds = espn_odds or {}
     new = 0
     now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
     for _, g in wk.iterrows():
         away, home = g["away_team"], g["home_team"]
         label = f"{away} @ {home}"
-        pred = pr.predict_game(g, elo, books=books_by_abbr.get((away, home)))
+        pred = pr.predict_game(g, elo, books=books_by_abbr.get((away, home)),
+                               espn=espn_odds.get((away, home)), injuries=injuries)
         rows = []
         if pred.get("edge_pts") is not None and abs(pred["edge_pts"]) >= EDGE_MIN:
             side = home if pred["edge_pts"] > 0 else away

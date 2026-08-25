@@ -156,7 +156,11 @@ def main():
                         books_by_abbr[k] = books
         except Exception:
             pass
-    tracker.log_predictions(games, elo, season, week, books_by_abbr)
+    try:
+        espn_odds = dl.espn_week_odds(season, week)
+    except Exception:
+        espn_odds = {}
+    tracker.log_predictions(games, elo, season, week, books_by_abbr, espn_odds, nv)
     tracker.grade_predictions(games)
     try:
         for w in range(1, week + 1):
@@ -171,7 +175,9 @@ def main():
         wind_mph = None
         if pd.notna(g["gameday"]) and g["gameday"] <= pd.Timestamp.now() + pd.Timedelta(days=15):
             wind_mph, _ = wx.wind_for_game(g)
-        pred = pr.predict_game(g, elo, wind_mph=wind_mph)
+        pred = pr.predict_game(g, elo, books=books_by_abbr.get((g["away_team"], g["home_team"])),
+                               espn=espn_odds.get((g["away_team"], g["home_team"])),
+                               injuries=nv, wind_mph=wind_mph)
         label = f"{g['away_team']} @ {g['home_team']}"
         if pred.get("model_total") is not None:
             gap = pred["model_total"] - pred["market_total"]
