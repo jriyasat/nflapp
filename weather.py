@@ -83,16 +83,30 @@ def kickoff_wind(stadium, gameday, gametime):
     target = f"{day}T{hour:02d}:00"
     for t, w in zip(times, winds):
         if t == target:
+            try:
+                return float(w)
+            except (TypeError, ValueError):
+                break  # kickoff hour beyond forecast horizon (null) -> day fallback
+    for w in winds:  # best available hour that day (skips nulls at window edge)
+        try:
             return float(w)
-    return float(winds[0]) if winds else None
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def wind_for_game(game_row):
-    """(mph or None, flag) where flag: 'under' | 'breezy' | None."""
-    if str(game_row.get("roof", "")).lower() not in ("outdoors", "open"):
+    """(mph or None, flag) where flag: 'under' | 'breezy' | None.
+
+    Weather is a nice-to-have badge: any failure returns (None, None)
+    rather than ever breaking the Games page."""
+    try:
+        if str(game_row.get("roof", "")).lower() not in ("outdoors", "open"):
+            return None, None
+        mph = kickoff_wind(game_row.get("stadium"), game_row.get("gameday"),
+                           game_row.get("gametime"))
+    except Exception:
         return None, None
-    mph = kickoff_wind(game_row.get("stadium"), game_row.get("gameday"),
-                       game_row.get("gametime"))
     if mph is None:
         return None, None
     flag = "under" if mph >= WIND_FLAG else ("breezy" if mph >= WIND_NOTE else None)
