@@ -504,7 +504,7 @@ def standings_page():
                         s = stats[t]
                         rows.append({"Team": t, "W": s["w"], "L": s["l"], "T": s["t"],
                                      "PF": s["pf"], "PA": s["pa"],
-                                     "Seed": seeds.get(t, "")})
+                                     "Seed": str(seeds[t]) if t in seeds else ""})
                     st.markdown(f"**{div}**")
                     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
         st.caption("Seeds 1-4 = division leaders • 5-7 = wildcards")
