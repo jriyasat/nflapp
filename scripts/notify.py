@@ -53,7 +53,8 @@ def send_telegram(chat_id, text):
 
 def _md_to_html(md):
     out = _html.escape(md)
-    out = re.sub(r"\*([^*]+)\*", r"<b>\1</b>", out)
+    out = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", out)  # **bold** first
+    out = re.sub(r"\*([^*]+)\*", r"<b>\1</b>", out)       # then *bold*
     return out.replace("\n", "<br>\n")
 
 
