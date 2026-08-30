@@ -270,8 +270,8 @@ except Exception:
     nv_injuries, nv_status = {}, "unavailable"
 
 st.sidebar.markdown(f"**{len(week_games)} games** loaded • injuries for {len(injuries)} teams")
-views = (["Games", "📒 Bet Journal", "📈 Track Record", "🏆 Pick'em", "📰 News", "🏅 Standings",
-          "❓ How It Works", "📜 Terms", "⚙️ Settings"] + (["👥 Users"] if IS_ADMIN else []))
+views = (["Games", "🔴 Live", "📒 Bet Journal", "📈 Track Record", "🏆 Pick'em", "📰 News", "🏅 Standings",
+          "📊 Power Rankings", "❓ How It Works", "📜 Terms", "⚙️ Settings"] + (["👥 Users"] if IS_ADMIN else []))
 if "_goto" in st.session_state:
     st.session_state["nav_radio"] = st.session_state.pop("_goto")
 page = st.sidebar.radio("View", views, key="nav_radio")
@@ -358,6 +358,74 @@ if page == "📒 Bet Journal":
         paywall("The Bet Journal + CLV Tracker")
         st.stop()
     journal_page()
+    st.stop()
+
+# ---------------- live page ----------------
+def _live_body(season, week):
+    live = dl.espn_live_scores(season, week)
+    if not live:
+        st.info("Live scores unavailable right now (ESPN may be rate-limiting). Try again shortly.")
+        return
+    bets = journal.load_bets(USER)
+    pending = bets[bets["status"] == "pending"] if not bets.empty else bets
+    wk_picks = db.load_pickem_week(season, week)
+    any_live = False
+    for ev in live:
+        state = ev["state"]
+        if state == "in":
+            any_live = True
+            badge = f"🟢 LIVE Q{ev['period']} {ev['clock']}"
+        elif state == "post":
+            badge = "✅ Final"
+        else:
+            badge = f"⏰ {ev['detail'] or 'upcoming'}"
+        st.markdown(f"**{ev['label']}** — {badge}"
+                    + (f"   **{ev['a_score']} – {ev['h_score']}**" if state != "pre" else ""))
+        margin = ev["h_score"] - ev["a_score"]
+        notes = []
+        if not pending.empty:
+            for _, b in pending[pending["game"] == ev["label"]].iterrows():
+                sel, line = str(b["selection"]), float(b["line"] or 0)
+                if state == "pre":
+                    notes.append(f"🎟️ your bet: {sel} {line:+g}")
+                else:
+                    tm = margin if sel == ev["home"] else -margin
+                    if b["bet_type"] in ("over", "under"):
+                        tot = ev["a_score"] + ev["h_score"]
+                        diff = tot - line if b["bet_type"] == "over" else line - tot
+                    else:
+                        diff = tm + line
+                    status = f"✅ by {diff:.0f}" if diff > 0 else (f"❌ by {-diff:.0f}" if diff < 0 else "➖ push")
+                    notes.append(f"🎟️ {sel} {line:+g} {b['bet_type']}: {status}")
+        if not wk_picks.empty:
+            for _, pk in wk_picks[wk_picks["game"] == ev["label"]].iterrows():
+                if state != "pre":
+                    tm = margin if pk["pick"] == ev["home"] else -margin
+                    diff = tm + (pk["line"] or 0)
+                    status = "✅" if diff > 0 else ("❌" if diff < 0 else "➖")
+                    notes.append(f"🏆 {pk['user']}: {pk['pick']} {pk['line']:+g} {status}")
+                else:
+                    notes.append(f"🏆 {pk['user']}: {pk['pick']} {pk['line']:+g}")
+        if notes:
+            st.caption("  •  ".join(notes))
+    if not any_live and all(ev["state"] == "pre" for ev in live):
+        st.caption("No games in progress — this page lights up at kickoff. Auto-refreshes every 60s.")
+
+
+def live_page():
+    st.header(f"🔴 Live — Week {week}")
+    if hasattr(st, "fragment"):
+        @st.fragment(run_every=60)
+        def _frag():
+            _live_body(season, week)
+        _frag()
+    else:
+        _live_body(season, week)
+        if st.button("🔄 Refresh"):
+            st.rerun()
+
+if page == "🔴 Live":
+    live_page()
     st.stop()
 
 # ---------------- pick'em page ----------------
@@ -520,6 +588,39 @@ def standings_page():
 
 if page == "🏅 Standings":
     standings_page()
+    st.stop()
+
+# ---------------- power rankings page ----------------
+@st.cache_data(ttl=3600)
+def _rankings_data(season):
+    cur = pr.Elo(games).ratings
+    done = games[(games["season"] == season) & games["result"].notna()
+                 & games["game_type"].isin(["REG", "POST"])]
+    prev = {}
+    if not done.empty:
+        lw = int(done["week"].max())
+        prev = pr.Elo(games[~((games["season"] == season) & (games["week"] == lw))]).ratings
+    rows = []
+    for t, r in sorted(cur.items(), key=lambda kv: -kv[1]):
+        d = r - prev.get(t, r)
+        rows.append({"#": len(rows) + 1, "Team": t, "Rating": round(r),
+                     "Δ wk": f"{'↑' if d > 0.5 else ('↓' if d < -0.5 else '–')} {d:+.0f}" if prev else "–"})
+    return rows
+
+
+def rankings_page():
+    st.header("📊 Elo Power Rankings")
+    st.caption("Our model's power ratings — updated after every game. "
+               "Gap between two ratings predicts the winner (+100 pts ≈ 64% win chance). "
+               "More: ❓ How It Works.")
+    rows = _rankings_data(season)
+    half = (len(rows) + 1) // 2
+    c1, c2 = st.columns(2)
+    c1.dataframe(pd.DataFrame(rows[:half]), hide_index=True, width="stretch")
+    c2.dataframe(pd.DataFrame(rows[half:]), hide_index=True, width="stretch")
+
+if page == "📊 Power Rankings":
+    rankings_page()
     st.stop()
 
 # ---------------- how-it-works page ----------------

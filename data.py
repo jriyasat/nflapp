@@ -161,6 +161,34 @@ def espn_week_odds(season, week, seasontype=2):
     return out
 
 
+def espn_live_scores(season, week, seasontype=2):
+    """Live/current scoreboard for a week (60s cache).
+    [{label, away, home, a_score, h_score, state ('pre'|'in'|'post'), clock, period, detail}]"""
+    try:
+        data = _get_json(ESPN_SCOREBOARD, f"espn_live_{season}_{seasontype}_{week}.json", 1,
+                         params={"dates": season, "seasontype": seasontype, "week": week,
+                                 "limit": 100}, service="espn")
+    except Exception:
+        return []
+    out = []
+    for ev in data.get("events", []):
+        comp = ev["competitions"][0]
+        st = comp.get("status", {})
+        comps = {c["homeAway"]: c for c in comp["competitors"]}
+        h, a = comps.get("home", {}), comps.get("away", {})
+        out.append({
+            "label": f"{a.get('team', {}).get('abbreviation', '?')} @ "
+                     f"{h.get('team', {}).get('abbreviation', '?')}",
+            "away": a.get("team", {}).get("abbreviation", "?"),
+            "home": h.get("team", {}).get("abbreviation", "?"),
+            "a_score": int(a.get("score", 0) or 0), "h_score": int(h.get("score", 0) or 0),
+            "state": st.get("type", {}).get("state", "pre"),
+            "clock": st.get("displayClock", ""), "period": st.get("period", 0),
+            "detail": st.get("type", {}).get("shortDetail", ""),
+        })
+    return out
+
+
 def espn_injuries():
     """Latest injury report: {TEAM_ABBR: [ {name, position, status, detail} ] }.
     Parsed result memoized by cache-file mtime (the raw JSON is ~9MB)."""

@@ -74,6 +74,26 @@ def recap_sections(games, season, journal_user=None):
                 clv = f" · CLV {r.clv:+.1f}" if pd.notna(r.get("clv")) and r.get("clv") != "" else ""
                 lines.append(f"{mark} {r.game} {r.selection} {r.line:+g}{clv}")
             user_out.append(f"📒 *{journal_user}'s journal*\n" + "\n".join(lines))
+    # pick'em: last week's results + season standings (shared section)
+    try:
+        wk_p = db.load_pickem_week(season, lw)
+        if not wk_p.empty:
+            graded = wk_p[wk_p["grade"].isin(["won", "lost", "push"])]
+            if not graded.empty:
+                per_user = {}
+                for _, r in graded.iterrows():
+                    w_, l_, p_ = per_user.get(r["user"], (0, 0, 0))
+                    per_user[r["user"]] = (w_ + (r["grade"] == "won"),
+                                           l_ + (r["grade"] == "lost"),
+                                           p_ + (r["grade"] == "push"))
+                wk_lines = [f"• {u}: {w}-{l}-{p}" for u, (w, l, p) in
+                            sorted(per_user.items(), key=lambda kv: -kv[1][0])]
+                lb = db.pickem_leaderboard(season)
+                lb_txt = ", ".join(f"{r['user']} {r['record']}" for r in lb)
+                model_out.append("🏆 *PICK'EM — last week*\n" + "\n".join(wk_lines)
+                                 + f"\nSeason: {lb_txt}")
+    except Exception:
+        pass
     return model_out, user_out
 
 
@@ -168,6 +188,7 @@ def main():
     except Exception:
         pass
     edges, angles = [], []
+    model_cands = []
     new_edge_snap = {}
     old_tot = load_snap(SNAP_TOTALS) or {}
     new_tot, tot_hits = {}, []
@@ -179,6 +200,10 @@ def main():
                                espn=espn_odds.get((g["away_team"], g["home_team"])),
                                injuries=nv, wind_mph=wind_mph)
         label = f"{g['away_team']} @ {g['home_team']}"
+        if pred.get("edge_pts") is not None and pd.notna(g["spread_line"]):
+            side_t = g["home_team"] if pred["edge_pts"] > 0 else g["away_team"]
+            t_line = -float(g["spread_line"]) if pred["edge_pts"] > 0 else float(g["spread_line"])
+            model_cands.append((abs(pred["edge_pts"]), label, side_t, t_line))
         if pred.get("model_total") is not None:
             gap = pred["model_total"] - pred["market_total"]
             if abs(gap) >= 1.5:
@@ -216,6 +241,15 @@ def main():
     if angles and last_week != f"{season}-{week}":
         sections.append("📐 *ANGLES THIS WEEK*\n" + "\n".join(angles[:5]))
     save_snap(SNAP_WEEK, f"{season}-{week}")
+
+    # 🤖 model enters pick'em: top-5 edge games, once per week
+    try:
+        if db.load_pickem("model", season, week).empty and model_cands:
+            model_cands.sort(reverse=True)
+            for _, lbl, team, tl in model_cands[:5]:
+                db.save_pickem("model", season, week, lbl, team, tl)
+    except Exception:
+        pass
 
     # ---- wind alerts (games inside the 16-day forecast window) ----
     old_wx = load_snap(SNAP_WX) or {}
@@ -274,6 +308,15 @@ def main():
                     notify.send_telegram(u["telegram_chat_id"], user_full)
             except Exception:
                 continue
+    except Exception:
+        pass
+
+    # ---- cross-post to the public channel (growth funnel) ----
+    try:
+        import notify as _notify
+        chan = _notify._env("NFL_PUBLIC_CHANNEL")
+        if chan:
+            _notify.send_telegram(chan, full)
     except Exception:
         pass
 
