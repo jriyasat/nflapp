@@ -41,6 +41,12 @@
 - **Turso libsql_client hangs process exit** (non-daemon threads) — scripts using it must `os._exit(0)` at the end.
 - **Module changes need a server restart, not a browser rerun** — Streamlit reruns `app.py` but Python caches `db.py`/`data.py`/etc. in the long-lived process. Symptom: `AttributeError: module has no attribute <new function>`. Fix: `pkill -f "streamlit run app.py"` and relaunch.
 
+## Review backlog status (Sep 2026 audit)
+
+- DONE: S1 (cookie fail-closed), S2 (pick'em server-side lock), S4 (delete-account password), O2 (user_level memo), O3 (quota: 1 prop-load/day free users, Thursday-only scan ≈100 credits/mo), O4 (single `emailer` path), O1 (lazy game rendering — only open games render tabs), G3 (central `FEATURE_GATES` in app.py)
+- DEFERRED: S3 (login throttling — low value), O5 (script common-core — mostly subsumed by email consolidation), G1 (full page-dispatch registry — do when the next page lands), G2 (data-source registry — do when adding a paid feed), G4 (model constants to config)
+- DEFERRED (user decisions): preseason support (skipped), pick'em was built, playoff support → build Dec 2026 (reminder job f32fe4ea0898)
+
 ## Rollback
 
 ```
