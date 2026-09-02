@@ -127,6 +127,14 @@ IS_ADMIN = LEVEL == "admin"
 IS_PAID = LEVEL in ("admin", "paid")  # full feature access (admins included)
 CONTACT_EMAIL = "jeff.riyasat@gmail.com"
 
+# central feature gates: feature -> minimum tier. Change tiers in ONE place.
+_LEVEL_RANK = {"user": 0, "paid": 1, "admin": 2}
+FEATURE_GATES = {"props": "paid", "sgp": "paid", "journal": "paid", "email_brief": "paid"}
+
+
+def gate(feature):
+    return _LEVEL_RANK.get(LEVEL, 0) >= _LEVEL_RANK[FEATURE_GATES.get(feature, "admin")]
+
 
 def paywall(feature):
     """Upgrade wall shown to free-tier users behind gated features."""
@@ -353,7 +361,7 @@ def journal_page():
             st.rerun()
 
 if page == "📒 Bet Journal":
-    if not IS_PAID:
+    if not gate("journal"):
         st.header("📒 Bet Journal + CLV Tracker")
         paywall("The Bet Journal + CLV Tracker")
         st.stop()
@@ -880,7 +888,7 @@ def settings_page():
             db.update_email(USER, new_email.strip())
             st.success("Email saved ✅")
             st.rerun()
-        if IS_PAID:
+        if gate("email_brief"):
             email_on = st.checkbox("Send me the daily email brief",
                                    value=bool(me["email_enabled"]),
                                    disabled=not (me["email"] or new_email.strip()))
@@ -910,9 +918,12 @@ def settings_page():
     st.subheader("🗑️ Delete account")
     st.warning("This deletes your account AND your private bet journal. Permanent.")
     confirm = st.text_input("Type DELETE to confirm", key="del_confirm")
-    if st.button("Delete my account", disabled=(confirm != "DELETE")):
+    del_pw = st.text_input("Re-enter your password", type="password", key="del_pw")
+    if st.button("Delete my account", disabled=(confirm != "DELETE" or not del_pw)):
         if IS_ADMIN and db.admin_count() <= 1:
             st.error("You're the last admin — promote someone else first, or the app locks everyone out.")
+        elif not bcrypt.checkpw(del_pw.encode(), db.get_user(USER)["pw_hash"].encode()):
+            st.error("Password doesn't match — account not deleted.")
         else:
             db.delete_user(USER)
             for k in list(st.session_state.keys()):
@@ -1195,9 +1206,9 @@ def props_tab(g, away, home):
     elif api_key:
         if st.button(f"📡 Load live prop lines (~4 API credits)", key=f"loadprops_{away}_{home}"):
             used = db.usage_today(USER, "prop_load")
-            if not IS_ADMIN and used >= 3:
-                st.error("Daily prop-line limit reached (3/day per user — protects the shared API quota). "
-                         "Resets at midnight.")
+            if not IS_ADMIN and used >= 1:
+                st.error("Daily prop-line load used (1/day per user — protects the shared free "
+                         "API quota). Resets at midnight. Admin loads are unlimited.")
             else:
                 with st.spinner("Fetching props from The Odds API..."):
                     try:
@@ -1253,60 +1264,75 @@ def sgp_tab(g, away, home):
                "Only bet the SGP if your book's price is *longer* than Fair — books adjust for "
                "correlation too, so compare before betting. Lift ≠ guaranteed edge.")
 
-# ---------------- main loop ----------------
+# ---------------- main loop (lazy: only open games render — huge rerun win) ----------------
+open_set = st.session_state.setdefault("open_games", {0})
+
+
+def render_game(gi, g):
+    away, home = g["away_team"], g["home_team"]
+    spots = an.situational_spots(games, g)
+    if pd.notna(g["gameday"]) and g["gameday"] <= pd.Timestamp.now() + pd.Timedelta(days=15):
+        mph, wflag = wx.wind_for_game(g)
+        if wflag == "under":
+            spots.append(("🌬️ WIND", f"{mph:.0f} mph forecast at kickoff — under angle (60.9% unders 2021-25, n=87)", "UNDER"))
+        elif wflag == "breezy":
+            spots.append(("🌬️ BREEZY", f"{mph:.0f} mph forecast at kickoff — monitor", None))
+    if spots:
+        cols = st.columns(min(len(spots), 4))
+        for i, (tag, detail, lean) in enumerate(spots):
+            cols[i % len(cols)].warning(f"**{tag}**{' → ' + lean if lean else ''}\n\n{detail}")
+
+    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (last 3)", "⚔️ H2H (5y)", "🏥 Injuries"])
+    with tabs[0]:
+        predictor_tab(g, away, home)
+    with tabs[1]:
+        if gate("props"):
+            props_tab(g, away, home)
+        else:
+            paywall("Player Props")
+    with tabs[2]:
+        if gate("sgp"):
+            sgp_tab(g, away, home)
+        else:
+            paywall("The SGP correlation finder")
+    with tabs[3]:
+        lines_block(away, home, espn_odds.get((away, home)), books_by_abbr.get((away, home)))
+    with tabs[4]:
+        c1, c2 = st.columns(2)
+        for col, team in ((c1, away), (c2, home)):
+            col.markdown(f"**{team}**")
+            df_team = form_df(team)
+            if df_team is not None:
+                col.dataframe(df_team, hide_index=True, width="stretch")
+            else:
+                col.info("No recent games found.")
+    with tabs[5]:
+        rows, summ = an.h2h(games, away, home, seasons=5)
+        if rows:
+            st.markdown(
+                f"**Last {summ['n']} meetings:** {away} {summ[away]['w']}W / {home} {summ[home]['w']}W "
+                f"• ATS: {away} {summ[away]['ats']}-{summ[home]['ats']} {home} "
+                f"• Totals: {summ['over']}O-{summ['under']}U" +
+                (f"-{summ['push']}P" if summ["push"] else ""))
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        else:
+            st.info("No meetings in the last 5 seasons.")
+    with tabs[6]:
+        injuries_block(away, home)
+
+
 for gi, (_, g) in enumerate(week_games.iterrows()):
     away, home = g["away_team"], g["home_team"]
     day = g["gameday"].strftime("%a %b %d") if pd.notna(g["gameday"]) else ""
     label = f"{away} @ {home}  •  {day} {g.get('gametime', '')} ET"
-    with st.expander(label, expanded=(gi == 0)):
-        spots = an.situational_spots(games, g)
-        if pd.notna(g["gameday"]) and g["gameday"] <= pd.Timestamp.now() + pd.Timedelta(days=15):
-            mph, wflag = wx.wind_for_game(g)
-            if wflag == "under":
-                spots.append(("🌬️ WIND", f"{mph:.0f} mph forecast at kickoff — under angle (60.9% unders 2021-25, n=87)", "UNDER"))
-            elif wflag == "breezy":
-                spots.append(("🌬️ BREEZY", f"{mph:.0f} mph forecast at kickoff — monitor", None))
-        if spots:
-            cols = st.columns(min(len(spots), 4))
-            for i, (tag, detail, lean) in enumerate(spots):
-                cols[i % len(cols)].warning(f"**{tag}**{' → ' + lean if lean else ''}\n\n{detail}")
-
-        tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (last 3)", "⚔️ H2H (5y)", "🏥 Injuries"])
-        with tabs[0]:
-            predictor_tab(g, away, home)
-        with tabs[1]:
-            if IS_PAID:
-                props_tab(g, away, home)
-            else:
-                paywall("Player Props")
-        with tabs[2]:
-            if IS_PAID:
-                sgp_tab(g, away, home)
-            else:
-                paywall("The SGP correlation finder")
-        with tabs[3]:
-            lines_block(away, home, espn_odds.get((away, home)), books_by_abbr.get((away, home)))
-        with tabs[4]:
-            c1, c2 = st.columns(2)
-            for col, team in ((c1, away), (c2, home)):
-                col.markdown(f"**{team}**")
-                df_team = form_df(team)
-                if df_team is not None:
-                    col.dataframe(df_team, hide_index=True, width="stretch")
-                else:
-                    col.info("No recent games found.")
-        with tabs[5]:
-            rows, summ = an.h2h(games, away, home, seasons=5)
-            if rows:
-                st.markdown(
-                    f"**Last {summ['n']} meetings:** {away} {summ[away]['w']}W / {home} {summ[home]['w']}W "
-                    f"• ATS: {away} {summ[away]['ats']}-{summ[home]['ats']} {home} "
-                    f"• Totals: {summ['over']}O-{summ['under']}U" +
-                    (f"-{summ['push']}P" if summ["push"] else ""))
-                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-            else:
-                st.info("No meetings in the last 5 seasons.")
-        with tabs[6]:
-            injuries_block(away, home)
+    is_open = gi in open_set
+    hc1, hc2 = st.columns([11, 1])
+    hc1.markdown(f"**{label}**")
+    if hc2.button("▾" if is_open else "▸", key=f"tog_{gi}", help="open/close game"):
+        st.session_state["open_games"] = open_set ^ {gi}
+        st.rerun()
+    if is_open:
+        with st.container(border=True):
+            render_game(gi, g)
 
 st.caption("Historical lines: nflverse closing lines. Live: ESPN + The Odds API. For entertainment/research — bet responsibly.")

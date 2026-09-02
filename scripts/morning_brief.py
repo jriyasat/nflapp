@@ -358,7 +358,7 @@ def main():
     first = wk.iloc[0]["gameday"]
     kickoff = first.strftime("%a %b %d") if pd.notna(first) else ""
     board_secs = _board_sections(games, wk, season, week, nv)
-    if pd.Timestamp.now().weekday() in (3, 4):  # Thu/Fri: fold in the prop scan
+    if pd.Timestamp.now().weekday() == 3:  # Thursdays only (quota: ~100 credits/mo)
         try:
             import prop_scan
             hits, scanned = prop_scan.scan_edges(games, season, week)

@@ -33,9 +33,15 @@ def get_authenticator():
         except Exception:
             creds = {"usernames": {}}
     cookie = _cookie_cfg()
+    key = cookie.get("key")
+    if not key:
+        # FAIL CLOSED: never sign cookies with a static known key (forgery risk).
+        # Random per-boot key: sessions die on restart, but auth stays secure.
+        import secrets as _sec
+        key = _sec.token_hex(32)
     return stauth.Authenticate(
         creds,
         cookie.get("name", "nfl_edge_auth"),
-        cookie.get("key", "dev-key-change-me"),
+        key,
         cookie.get("expiry_days", 30),
     )

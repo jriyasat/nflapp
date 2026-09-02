@@ -257,6 +257,23 @@ def bump_usage(user, kind):
 
 # ---------------- pick'em league ----------------
 def save_pickem(user, season, week, game, pick, line):
+    # server-side kickoff lock (UI buttons alone are not enforcement)
+    try:
+        games = dl.load_games()
+        away, home = game.split(" @ ")
+        m = games[(games["season"] == season) & (games["week"] == week)
+                  & (games["away_team"] == away) & (games["home_team"] == home)]
+        if not m.empty:
+            g = m.iloc[0]
+            gt = str(g.get("gametime", "13:00"))
+            hh, mm = int(gt.split(":")[0]), int(gt.split(":")[1])
+            kickoff = g["gameday"] + pd.Timedelta(hours=hh, minutes=mm)
+            if pd.Timestamp.now() > kickoff:
+                raise ValueError(f"picks locked at kickoff ({game})")
+    except ValueError:
+        raise
+    except Exception:
+        pass  # data lookup failed → allow; UI still guards
     with _connect() as c:
         c.execute("INSERT OR REPLACE INTO pickem (id, user, season, week, game, pick, line, created_at, grade)"
                   " VALUES (?,?,?,?,?,?,?,?, COALESCE((SELECT grade FROM pickem WHERE user=? AND season=? AND week=? AND game=?), 'pending'))",
@@ -358,9 +375,19 @@ def set_level(username, level):
 
 
 def user_level(username):
+    """60s memo (called on every rerun for IS_ADMIN/IS_PAID) — saves a Turso
+    roundtrip per click. Invalidated on any user mutation."""
+    if time.time() - _LEVEL_CACHE["t"] < 60 and username in _LEVEL_CACHE["v"]:
+        return _LEVEL_CACHE["v"][username]
     with _connect() as c:
         r = c.execute("SELECT level FROM users WHERE username=?", (username,)).fetchone()
-    return r[0] if r else "user"
+    lvl = r[0] if r else "user"
+    _LEVEL_CACHE["v"][username] = lvl
+    _LEVEL_CACHE["t"] = time.time()
+    return lvl
+
+
+_LEVEL_CACHE = {"t": 0.0, "v": {}}
 
 
 _CRED_CACHE = {"t": 0.0, "v": None}
@@ -382,6 +409,8 @@ def auth_credentials():
 
 def _creds_invalidate():
     _CRED_CACHE["t"] = 0.0
+    _LEVEL_CACHE["t"] = 0.0
+    _LEVEL_CACHE["v"] = {}
 
 
 def load_bets(user):
