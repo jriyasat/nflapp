@@ -120,18 +120,22 @@ def broadcast(recipients, subject, html_body):
 
 
 def brief_html(brief_text, footer_note=""):
-    """Wrap the Telegram-markdown morning brief in a clean HTML email."""
+    """Mobile-first HTML email wrapper for Telegram-markdown text."""
     body = html.escape(brief_text)
-    # light markdown: *bold* -> <b>bold</b> (Telegram-style single stars)
-    import re
+    body = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", body)
     body = re.sub(r"\*([^*\n]+)\*", r"<b>\1</b>", body)
     note = (f'<p style="color:#888;font-size:12px">{html.escape(footer_note)}</p>'
             if footer_note else "")
-    return f"""<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:640px">
-<div style="white-space:pre-wrap;font-size:14px;line-height:1.5">{body}</div>
-<hr style="border:none;border-top:1px solid #ddd;margin:16px 0">
+    return f"""<!DOCTYPE html>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:12px;background:#f6f7f9">
+<div style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;
+     max-width:600px;margin:0 auto;background:#ffffff;border-radius:10px;
+     padding:18px 16px;font-size:16px;line-height:1.55;color:#1a1a1a">
+<div style="white-space:pre-wrap;word-wrap:break-word">{body}</div>
+<hr style="border:none;border-top:1px solid #e5e5e5;margin:16px 0">
 {note}
-<p style="color:#aaa;font-size:11px">NFL Edge Finder — for entertainment &amp; informational
-purposes only. Not betting advice. 21+. If gambling stops being fun: 1-800-GAMBLER.
-Reply to this email to stop the daily brief.</p>
-</div>"""
+<p style="color:#999;font-size:11px;line-height:1.4">NFL Edge Finder — for entertainment &amp;
+informational purposes only. Not betting advice. 21+. If gambling stops being fun:
+1-800-GAMBLER. Reply to this email to stop the daily brief.</p>
+</div></body></html>"""

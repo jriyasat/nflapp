@@ -23,31 +23,31 @@ PROJ_LABEL = {"proj_pass": "Pass Yds", "proj_rush": "Rush Yds",
               "proj_rec_yds": "Rec Yds", "proj_rec": "Receptions"}
 
 
-def main():
-    games = dl.load_games()
-    season, week = dl.current_season_week(games)
-    wk = games[(games["season"] == season) & (games["week"] == week)
-               & (games["game_type"] == "REG")]
-    if wk.empty:
-        return
+def _get_key():
     key = notify._env("ODDS_API_KEY") or ""
     try:
         key = key or open(os.path.join(dl.CACHE, "odds_api_key.txt")).read().strip()
     except Exception:
         pass
-    if not key:
-        print("⚠️ prop scan: no Odds API key")
-        return
+    return key
 
+
+def scan_edges(games, season, week):
+    """Scan top-edge games for prop edges. Returns (hits: [(edge_pct, line_str)], scanned)."""
+    wk = games[(games["season"] == season) & (games["week"] == week)
+               & (games["game_type"] == "REG")]
+    if wk.empty:
+        return [], 0
+    key = _get_key()
+    if not key:
+        return [], 0
     elo = pr.Elo(games)
-    # rank games by model-vs-market spread disagreement → scan where the model talks loudest
     ranked = []
     for _, g in wk.iterrows():
         pred = pr.predict_game(g, elo)
         gap = abs(pred["edge_pts"]) if pred.get("edge_pts") is not None else 0
         ranked.append((gap, g))
     ranked.sort(key=lambda x: -x[0])
-
     ps = dl.load_player_stats()
     defs = pm.defense_multipliers(ps)
     hits, scanned = [], 0
@@ -72,9 +72,23 @@ def main():
                                      f"• {label}: **{p['player']} {e['lean']} {e['line']} "
                                      f"{PROJ_LABEL.get(col, col)}** (proj {p[col]:.0f}, "
                                      f"edge {e['edge_pct']:+.0f}%)"))
+    hits.sort(reverse=True)
+    return hits, scanned
+
+
+def main():
+    games = dl.load_games()
+    season, week = dl.current_season_week(games)
+    wk = games[(games["season"] == season) & (games["week"] == week)
+               & (games["game_type"] == "REG")]
+    if wk.empty:
+        return
+    if not _get_key():
+        print("⚠️ prop scan: no Odds API key")
+        return
+    hits, scanned = scan_edges(games, season, week)
     if not hits:
         return  # no live props posted yet (normal early in the week) — stay silent
-    hits.sort(reverse=True)
     first = wk.iloc[0]["gameday"]
     kickoff = first.strftime("%a %b %d") if pd.notna(first) else ""
     full = (f"🎰 *TOP PROP EDGES — Week {week}* (kicks off {kickoff})\n"
@@ -82,13 +96,6 @@ def main():
             + "\n".join(m for _, m in hits[:TOP_N])
             + "\n\n_App: https://nfledge.streamlit.app → Props tab for the full board_")
     print(full)
-    subject = f"🎰 NFL Edge — Top prop edges (Week {week})"
-    gmail_user = notify._env("GMAIL_USER")
-    if gmail_user:
-        notify.send_email(gmail_user, subject, full)
-    for u in db.list_users():
-        if u.get("email_enabled") and u.get("email"):
-            notify.send_email(u["email"], subject, full)
     os._exit(0)
 
 

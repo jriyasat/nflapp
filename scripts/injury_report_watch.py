@@ -51,17 +51,6 @@ def main():
     lines += changes[:12] + improved[:6]
     full = "\n".join(lines)
     print(full)
-    try:
-        import notify
-        subject = f"🏥 NFL Edge — Injury report update (Week {week})"
-        gmail_user = notify._env("GMAIL_USER")
-        if gmail_user:
-            notify.send_email(gmail_user, subject, full)
-        for u in db.list_users():
-            if u.get("email_enabled") and u.get("email"):
-                notify.send_email(u["email"], subject, full)
-    except Exception:
-        pass
     os._exit(0)
 
 

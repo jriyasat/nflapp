@@ -97,6 +97,83 @@ def recap_sections(games, season, journal_user=None):
     return model_out, user_out
 
 
+def _board_sections(games, wk, season, week, nv):
+    """The always-on sections of the Daily Board email."""
+    secs = []
+    lines = []
+    for _, g in wk.iterrows():
+        sp, tot = g["spread_line"], g["total_line"]
+        s = (f"{g['away_team']} {sp:+.1f} @ {g['home_team']} {-sp:+.1f}" if pd.notna(sp)
+             else f"{g['away_team']} @ {g['home_team']} (no line)")
+        if pd.notna(tot):
+            s += f"  •  O/U {tot:.1f}"
+        lines.append(f"• {s}")
+    secs.append("📉 *THE BOARD*\n" + "\n".join(lines))
+    picks = tracker.load_picks()
+    wk_picks = picks[(picks["season"] == season) & (picks["week"] == week)] if not picks.empty else picks
+    if not wk_picks.empty:
+        pl = [f"• {r['game']}: {r['side']} ({r['pick_type']}, gap {abs(r['edge_log']):.1f})"
+              for _, r in wk_picks.iterrows()]
+        secs.append("🎯 *MODEL PICKS LOGGED*\n" + "\n".join(pl))
+    else:
+        secs.append("🎯 *MODEL PICKS* — none over the 2-pt threshold yet this week.")
+    s = tracker.summary(picks)
+    n_graded = s["spread"]["n"] + s["total"]["n"]
+    secs.append(f"📈 *MODEL SEASON RECORD* — sides {s['spread']['record']}, "
+                f"totals {s['total']['record']}, {s['pending']} pending"
+                if n_graded else "📈 *MODEL SEASON RECORD* — starts grading this week.")
+    # injury watch by team (key players = the ones our props model projects)
+    DESIG = ("Out", "Doubtful", "Questionable")
+    teams_wk = sorted(set(wk["away_team"]) | set(wk["home_team"]))
+    key_names = {}
+    try:
+        import props_model as pm
+        ps = dl.load_player_stats()
+        defs = pm.defense_multipliers(ps)
+        opp_of = {}
+        for _, g in wk.iterrows():
+            opp_of[g["away_team"]] = g["home_team"]
+            opp_of[g["home_team"]] = g["away_team"]
+        for t in teams_wk:
+            try:
+                res = pm.project_game(ps, defs, t, opp_of.get(t, t), per_pos=2)
+                key_names[t] = {p["player"] for p in res["players"]}
+            except Exception:
+                key_names[t] = set()
+    except Exception:
+        key_names = {t: set() for t in teams_wk}
+    sev_rank = {"Out": 0, "Doubtful": 1, "Questionable": 2}
+    sev_short = {"Out": "Out", "Doubtful": "D", "Questionable": "Q"}
+    inj_lines = []
+    for t in teams_wk:
+        prows = [p for p in nv.get(t, {}).get("rows", []) if p.get("status") in DESIG]
+        if not prows:
+            continue
+        prows.sort(key=lambda p: sev_rank.get(p["status"], 3))
+        keys = [p for p in prows if p["name"] in key_names.get(t, set())][:2]
+        for p in prows:
+            if len(keys) >= 2:
+                break
+            if p not in keys:
+                keys.append(p)
+        key_txt = ", ".join(f"{p['name']} ({sev_short.get(p['status'], p['status'])}"
+                            f"{' — ' + p['detail'] if p.get('detail') else ''})" for p in keys)
+        inj_lines.append(f"• **{t}** ({len(prows)} designated): {key_txt}")
+    if inj_lines:
+        secs.append("🏥 *INJURY WATCH — by team*\n" + "\n".join(inj_lines))
+    else:
+        secs.append("🏥 *INJURY WATCH* — no official designations yet.")
+    wind_lines = []
+    for _, g in wk.iterrows():
+        w, flag = wx.wind_for_game(g)
+        if w is not None and w >= 10:
+            tag = "🔴 UNDER angle" if flag == "under" else "breezy"
+            wind_lines.append(f"• {g['away_team']} @ {g['home_team']}: {w:.0f} mph {tag}")
+    secs.append(("🌬️ *WIND WATCH*\n" + "\n".join(wind_lines)) if wind_lines
+                else "🌬️ *WIND WATCH* — no games ≥10 mph.")
+    return secs
+
+
 def main():
     games = dl.load_games()
     season, week = dl.current_season_week(games)
@@ -276,19 +353,50 @@ def main():
     if is_monday:
         model_rec, jeff_rec = recap_sections(games, season, journal_user="jeff")
 
-    if not sections and not (model_rec or jeff_rec):
-        return
+    # ---- DAILY BOARD EMAIL (always sends — the one daily email) ----
+    today = datetime.now().strftime("%a %b %d")
     first = wk.iloc[0]["gameday"]
     kickoff = first.strftime("%a %b %d") if pd.notna(first) else ""
-    today = datetime.now().strftime("%a %b %d")
+    board_secs = _board_sections(games, wk, season, week, nv)
+    if pd.Timestamp.now().weekday() in (3, 4):  # Thu/Fri: fold in the prop scan
+        try:
+            import prop_scan
+            hits, scanned = prop_scan.scan_edges(games, season, week)
+            if hits:
+                board_secs.append(f"🎰 *TOP PROP EDGES* (scanned {scanned} games)\n"
+                                  + "\n".join(m for _, m in hits[:5]))
+        except Exception:
+            pass
+    try:
+        sys.path.insert(0, "/Users/jeff/nfl-edge")
+        import emailer
+        gmail_user = emailer._gmail_cfg()[0]
+        for u in db.list_users():
+            try:
+                addr = u.get("email") or (gmail_user if u["username"] == "jeff" else None)
+                if not addr or not (u.get("email_enabled") or u["username"] == "jeff"):
+                    continue
+                urec = jeff_rec if u["username"] == "jeff" else (
+                    recap_sections(games, season, journal_user=u["username"])[1] if is_monday else [])
+                user_full = (f"🏈 *NFL Edge Daily Board* — {today}\n"
+                             f"Week {week} kicks off {kickoff}\n\n"
+                             + "\n\n".join(model_rec + urec + sections + board_secs))
+                emailer.send_email(addr, f"🏈 NFL Edge Daily Board — {today} (Week {week})",
+                                   emailer.brief_html(user_full))
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # ---- telegram: watchdog only (changes) ----
+    if not sections and not (model_rec or jeff_rec):
+        return
     header = f"🏈 *NFL Edge Morning Brief* — {today}\nWeek {week} kicks off {kickoff}\n"
     full = header + "\n" + "\n\n".join(model_rec + jeff_rec + sections)
     print(full)
 
-    # ---- fan-out to opted-in users (email + telegram DMs); each gets THEIR recap ----
+    # ---- fan-out to opted-in users (telegram DMs only; email is the Daily Board) ----
     try:
-        sys.path.insert(0, "/Users/jeff/nfl-edge")
-        import emailer
         import notify
         for u in db.list_users():
             try:
@@ -299,11 +407,6 @@ def main():
                 else:
                     urec = []
                 user_full = header + "\n" + "\n\n".join(model_rec + urec + sections)
-                # email brief is a Pro feature (admin/paid only)
-                if (u.get("email_enabled") and u.get("email")
-                        and u.get("level", "user") in ("admin", "paid")):
-                    emailer.send_email(u["email"], f"NFL Edge Brief — {today}",
-                                       emailer.brief_html(user_full))
                 if u.get("telegram_enabled") and u.get("telegram_chat_id"):
                     notify.send_telegram(u["telegram_chat_id"], user_full)
             except Exception:
