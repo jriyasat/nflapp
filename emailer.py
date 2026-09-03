@@ -120,22 +120,45 @@ def broadcast(recipients, subject, html_body):
 
 
 def brief_html(brief_text, footer_note=""):
-    """Mobile-first HTML email wrapper for Telegram-markdown text."""
+    """Mobile-first, borderless HTML email. Flat full-width text, section dividers,
+    hanging-indent bullets (clean wraps), auto dark mode."""
     body = html.escape(brief_text)
     body = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", body)
     body = re.sub(r"\*([^*\n]+)\*", r"<b>\1</b>", body)
+
+    def render_section(sec):
+        out = []
+        for ln in sec.split("\n"):
+            if not ln.strip():
+                continue
+            cls = ' class="b"' if ln.startswith("• ") else ""
+            out.append(f"<div{cls}>{ln}</div>")
+        return "\n".join(out)
+
+    blocks = "".join(
+        f'<div class="sec">{render_section(s)}</div>'
+        for s in re.split(r"\n\s*\n", body) if s.strip())
     note = (f'<p style="color:#888;font-size:12px">{html.escape(footer_note)}</p>'
             if footer_note else "")
     return f"""<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:12px;background:#f6f7f9">
-<div style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;
-     max-width:600px;margin:0 auto;background:#ffffff;border-radius:10px;
-     padding:18px 16px;font-size:16px;line-height:1.55;color:#1a1a1a">
-<div style="white-space:pre-wrap;word-wrap:break-word">{body}</div>
-<hr style="border:none;border-top:1px solid #e5e5e5;margin:16px 0">
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body {{ margin:0; padding:10px 12px; background:#ffffff; color:#1a1a1a;
+       font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;
+       font-size:16px; line-height:1.5; }}
+.sec {{ margin-top:18px; padding-top:12px; border-top:1px solid #e4e4e4; }}
+.sec:first-child {{ margin-top:0; padding-top:0; border-top:none; }}
+.b {{ padding-left:16px; text-indent:-16px; margin:2px 0; }}
+b {{ font-weight:700; }}
+@media (prefers-color-scheme: dark) {{
+  body {{ background:#121212; color:#e8e8e8; }}
+  .sec {{ border-top-color:#333; }}
+}}
+</style></head>
+<body>{blocks}
+<div class="sec"></div>
 {note}
 <p style="color:#999;font-size:11px;line-height:1.4">NFL Edge Finder — for entertainment &amp;
 informational purposes only. Not betting advice. 21+. If gambling stops being fun:
 1-800-GAMBLER. Reply to this email to stop the daily brief.</p>
-</div></body></html>"""
+</body></html>"""
