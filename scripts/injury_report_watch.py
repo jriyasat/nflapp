@@ -4,6 +4,7 @@ report (drops ~Wed 4pm ET, updates through Friday). Silent otherwise."""
 
 import json
 import os
+import signal
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,13 +12,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ.pop("PYTHONPATH", None)
 
 import data as dl
-import db
 
 SNAP = os.path.join(dl.CACHE, "snap_inj_report.json")
 SEV = {"Out": 3, "Doubtful": 2, "Questionable": 1}
 
 
 def main():
+    # hard deadline: if anything stalls (network trickle, hung client), skip this
+    # tick silently — the next run in 30 min retries. Never hang for an hour.
+    signal.signal(signal.SIGALRM, lambda *_: os._exit(0))
+    signal.alarm(240)
     games = dl.load_games()
     season, week = dl.current_season_week(games)
     try:
