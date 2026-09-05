@@ -1190,7 +1190,8 @@ def props_tab(g, away, home):
                 e = p.get("edges", {}).get(col)
                 if e:
                     mark = "🟢" if abs(e["edge_pct"]) >= 8 else "⚪"
-                    hr = pm.hit_rate(player_stats, p["player_id"], col, e["line"])
+                    hr = (pm.hit_rate(player_stats, p["player_id"], col, e["line"])
+                          if p.get("player_id") else None)
                     trend = (f" · L{hr['n']} {'O' if hr['overs'] >= hr['unders'] else 'U'} "
                              f"{max(hr['overs'], hr['unders'])}-{min(hr['overs'], hr['unders'])}") if hr else ""
                     row[label] = (f"{v:.0f} | {e['line']} {mark} "
