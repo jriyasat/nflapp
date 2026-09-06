@@ -145,6 +145,36 @@ def paywall(feature):
         "📧 **daily email brief**\n\n"
         f"👉 To upgrade, contact us at [{CONTACT_EMAIL}](mailto:{CONTACT_EMAIL}).")
 
+# ---------------- team logos (shared; same pattern as the games list) ----------------
+TEAM_SET = {t for ts in an.DIVISIONS.values() for t in ts}
+LOGO_ALIAS = {"STL": "LAR", "SD": "LAC", "OAK": "LV"}  # relocated franchises -> current logo
+LOGO_CFG = {"Logo": st.column_config.ImageColumn("Logo", width="small")}
+
+def _logo_team(t):
+    """Resolve a team abbr (incl. historical) to the abbr that has a logo PNG."""
+    return t if t in TEAM_SET else LOGO_ALIAS.get(t)
+
+def logo_img(t, size=24):
+    """Inline logo <img> for markdown spots. Self-hides if the PNG is missing."""
+    t = _logo_team(t)
+    if not t:
+        return ""
+    return (f'<img src="/app/static/logos/{t}.png" width="{size}" '
+            f'style="vertical-align:middle;border-radius:4px;margin-right:4px" '
+            f'onerror="this.style.display=\'none\'">')
+
+def team_md(t, size=24):
+    return f"{logo_img(t, size)}**{t}**"
+
+def matchup_md(away, home, size=24):
+    return f"{team_md(away, size)} @ {team_md(home, size)}"
+
+def logo_url(t):
+    """Logo URL for dataframe ImageColumn cells (None -> blank cell)."""
+    t = _logo_team(t)
+    return f"/app/static/logos/{t}.png" if t else None
+
+
 # top-of-page link to the explainer (hidden when already on it)
 if (st.session_state.get("nav_radio") != "❓ How It Works"
         and st.session_state.get("_goto") != "❓ How It Works"):
@@ -352,9 +382,10 @@ def journal_page():
     if len(bets):
         show = bets.copy()
         show["clv"] = show["clv"].apply(lambda v: f"{float(v):+.2f}" if str(v) not in ("", "nan") else "…")
-        st.dataframe(show[["date", "game", "bet_type", "selection", "line", "odds",
+        show.insert(0, "Logo", show["selection"].map(logo_url))
+        st.dataframe(show[["Logo", "date", "game", "bet_type", "selection", "line", "odds",
                            "stake", "book", "status", "profit", "clv"]].iloc[::-1],
-                     hide_index=True, width="stretch")
+                     column_config=LOGO_CFG, hide_index=True, width="stretch")
         del_id = st.selectbox("Delete a bet (by id)", [""] + bets["id"].tolist())
         if del_id and st.button("🗑️ Delete"):
             journal.delete_bet(del_id, USER)
@@ -387,8 +418,9 @@ def _live_body(season, week):
             badge = "✅ Final"
         else:
             badge = f"⏰ {ev['detail'] or 'upcoming'}"
-        st.markdown(f"**{ev['label']}** — {badge}"
-                    + (f"   **{ev['a_score']} – {ev['h_score']}**" if state != "pre" else ""))
+        st.markdown(f"{matchup_md(ev['away'], ev['home'], 22)} — {badge}"
+                    + (f"   **{ev['a_score']} – {ev['h_score']}**" if state != "pre" else ""),
+                    unsafe_allow_html=True)
         margin = ev["h_score"] - ev["a_score"]
         notes = []
         if not pending.empty:
@@ -465,12 +497,12 @@ def pickem_page():
         label = f"{away} @ {home}"
         sp = g["spread_line"]
         locked = _kickoff_passed(g)
-        line_txt = (f"{away} {sp:+.1f} / {home} {-sp:+.1f}") if pd.notna(sp) else "no line yet"
+        line_txt = (f"{team_md(away, 20)} {sp:+.1f} / {team_md(home, 20)} {-sp:+.1f}") if pd.notna(sp) else "no line yet"
         c0, c1, c2 = st.columns([3, 1, 1])
         my = picked.get(label)
-        c0.markdown(f"**{label}** — {line_txt}"
-                    + (f"  ✅ your pick: **{my}** ({grade_by_game.get(label, 'pending')})" if my else "")
-                    + ("  🔒 locked" if locked and not my else ""))
+        c0.markdown(f"{matchup_md(away, home, 22)} — {line_txt}"
+                    + (f"  ✅ your pick: {team_md(my, 20)} ({grade_by_game.get(label, 'pending')})" if my else "")
+                    + ("  🔒 locked" if locked and not my else ""), unsafe_allow_html=True)
         if not locked and pd.notna(sp):
             full = len(picked) >= 5 and label not in picked
             if c1.button(f"{away}", key=f"pk_a_{label}", disabled=full):
@@ -496,9 +528,10 @@ def pickem_page():
         vis = wk_all[wk_all["game"].isin(locked_games)]
         if not vis.empty:
             st.subheader("Everyone's picks (locked games)")
-            st.dataframe(vis.rename(columns={"user": "Player", "game": "Game", "pick": "Pick",
-                                             "line": "Line", "grade": "Result"}),
-                         hide_index=True, width="stretch")
+            vis = vis.rename(columns={"user": "Player", "game": "Game", "pick": "Pick",
+                                      "line": "Line", "grade": "Result"})
+            vis.insert(0, "Logo", vis["Pick"].map(logo_url))
+            st.dataframe(vis, column_config=LOGO_CFG, hide_index=True, width="stretch")
 
 if page == "🏆 Pick'em":
     pickem_page()
@@ -578,20 +611,22 @@ def standings_page():
                     rows = []
                     for t in sorted(an.DIVISIONS[div], key=lambda x: an._winpct(stats[x]), reverse=True):
                         s = stats[t]
-                        rows.append({"Team": t, "W": s["w"], "L": s["l"], "T": s["t"],
-                                     "PF": s["pf"], "PA": s["pa"],
+                        rows.append({"Logo": logo_url(t), "Team": t, "W": s["w"], "L": s["l"],
+                                     "T": s["t"], "PF": s["pf"], "PA": s["pa"],
                                      "Seed": str(seeds[t]) if t in seeds else ""})
                     st.markdown(f"**{div}**")
-                    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+                    st.dataframe(pd.DataFrame(rows), column_config=LOGO_CFG,
+                                 hide_index=True, width="stretch")
         st.caption("Seeds 1-4 = division leaders • 5-7 = wildcards")
     with t2:
         rows = []
         for t, s in stats.items():
             n = s["ats_w"] + s["ats_l"]
-            rows.append({"Team": t, "ATS": f"{s['ats_w']}-{s['ats_l']}-{s['ats_p']}",
+            rows.append({"Logo": logo_url(t), "Team": t,
+                         "ATS": f"{s['ats_w']}-{s['ats_l']}-{s['ats_p']}",
                          "Cover %": round(100 * s["ats_w"] / n, 1) if n else 0.0})
         rows.sort(key=lambda r: -r["Cover %"])
-        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        st.dataframe(pd.DataFrame(rows), column_config=LOGO_CFG, hide_index=True, width="stretch")
         st.caption("Against-the-spread record vs closing lines — the standings that pay.")
 
 if page == "🏅 Standings":
@@ -610,8 +645,10 @@ def _rankings_data(season):
         prev = pr.Elo(games[~((games["season"] == season) & (games["week"] == lw))]).ratings
     rows = []
     for t, r in sorted(cur.items(), key=lambda kv: -kv[1]):
+        if t not in TEAM_SET:
+            continue  # defunct franchises (STL/SD/OAK) — in history, not in current rankings
         d = r - prev.get(t, r)
-        rows.append({"#": len(rows) + 1, "Team": t, "Rating": round(r),
+        rows.append({"#": len(rows) + 1, "Logo": logo_url(t), "Team": t, "Rating": round(r),
                      "Δ wk": f"{'↑' if d > 0.5 else ('↓' if d < -0.5 else '–')} {d:+.0f}" if prev else "–"})
     return rows
 
@@ -624,8 +661,8 @@ def rankings_page():
     rows = _rankings_data(season)
     half = (len(rows) + 1) // 2
     c1, c2 = st.columns(2)
-    c1.dataframe(pd.DataFrame(rows[:half]), hide_index=True, width="stretch")
-    c2.dataframe(pd.DataFrame(rows[half:]), hide_index=True, width="stretch")
+    c1.dataframe(pd.DataFrame(rows[:half]), column_config=LOGO_CFG, hide_index=True, width="stretch")
+    c2.dataframe(pd.DataFrame(rows[half:]), column_config=LOGO_CFG, hide_index=True, width="stretch")
 
 if page == "📊 Power Rankings":
     rankings_page()
@@ -977,9 +1014,10 @@ def track_record_page():
     show = picks.copy()
     show["profit"] = show["profit"].apply(lambda v: f"{float(v):+.2f}" if pd.notna(v) and str(v) != "" else "…")
     show["closing_line"] = show["closing_line"].apply(lambda v: f"{float(v):+.1f}" if pd.notna(v) and str(v) != "" else "…")
-    st.dataframe(show[["logged_at", "game", "pick_type", "side", "model_val",
+    show.insert(0, "Logo", show["side"].map(logo_url))
+    st.dataframe(show[["Logo", "logged_at", "game", "pick_type", "side", "model_val",
                        "market_val_log", "edge_log", "closing_line", "grade", "profit"]].iloc[::-1],
-                 hide_index=True, width="stretch")
+                 column_config=LOGO_CFG, hide_index=True, width="stretch")
 
 if page == "📈 Track Record":
     track_record_page()
@@ -1024,15 +1062,15 @@ def lines_block(away, home, espn_o, books):
             st.success("⚡ Books disagree on the number -- line shopping value available")
         tags = []
         if best.get("home_spread"):
-            b = best["home_spread"]; tags.append(f"Best {home} spread: {b['point']:+.1f} @ {b['book']}")
+            b = best["home_spread"]; tags.append(f"Best {team_md(home, 18)} spread: {b['point']:+.1f} @ {b['book']}")
         if best.get("away_spread"):
-            b = best["away_spread"]; tags.append(f"Best {away} spread: {b['point']:+.1f} @ {b['book']}")
+            b = best["away_spread"]; tags.append(f"Best {team_md(away, 18)} spread: {b['point']:+.1f} @ {b['book']}")
         if best.get("over"):
             tags.append(f"Best Over: {best['over']['point']:.1f} @ {best['over']['book']}")
         if best.get("under"):
             tags.append(f"Best Under: {best['under']['point']:.1f} @ {best['under']['book']}")
         if tags:
-            st.markdown(" • ".join(f"**{t}**" for t in tags))
+            st.markdown(" • ".join(tags), unsafe_allow_html=True)
 
 def form_df(team):
     rows = an.last_n(games, team, 3)
@@ -1052,7 +1090,8 @@ def injuries_block(away, home):
         nv = nv_injuries.get(team)
         if nv and nv["rows"]:
             any_data = True
-            st.markdown(f"**{team}** — official NFL report ({nv['label']})")
+            st.markdown(f"{team_md(team)} — official NFL report ({nv['label']})",
+                        unsafe_allow_html=True)
             st.dataframe(pd.DataFrame([{
                 "Player": r["name"], "Pos": r["position"], "Status": r["status"],
                 "Injury": r["detail"], "Practice": r["practice"],
@@ -1061,7 +1100,7 @@ def injuries_block(away, home):
             rows = injuries.get(team, [])
             if rows:
                 any_data = True
-                st.markdown(f"**{team}** — via ESPN")
+                st.markdown(f"{team_md(team)} — via ESPN", unsafe_allow_html=True)
                 st.dataframe(pd.DataFrame([{
                     "Player": r["name"], "Pos": r["position"],
                     "Status": r["status"], "Injury": r["detail"],
@@ -1109,7 +1148,8 @@ def predictor_tab(g, away, home):
         elif pred.get("market_total"):
             c4.metric("Total (market)", f"{pred['market_total']:.1f}")
         p = pred["p_home_cover"]
-        st.markdown(f"**Cover probability:** {home} {p*100:.0f}% / {away} {(1-p)*100:.0f}%")
+        st.markdown(f"**Cover probability:** {team_md(home, 20)} {p*100:.0f}% / {team_md(away, 20)} {(1-p)*100:.0f}%",
+                    unsafe_allow_html=True)
         st.progress(min(max(p, 0.0), 1.0))
         rows = []
         br = (get_user_settings(USER) or {}).get("bankroll")
@@ -1118,16 +1158,16 @@ def predictor_tab(g, away, home):
             if ev is not None:
                 k = pred[f"kelly_{side}"]
                 ktxt = (f"{k*100:.1f}% of bankroll" + (f" (${k*br:.0f})" if br else "")) if k > 0 else "no bet"
-                rows.append({"Side": team, "EV @-110": f"{ev*100:+.1f}%",
+                rows.append({"Logo": logo_url(team), "Side": team, "EV @-110": f"{ev*100:+.1f}%",
                              "¼ Kelly stake": ktxt})
         for side in ("over", "under"):
             ev = pred.get(f"ev_{side}")
             if ev is not None:
                 k = pred[f"kelly_{side}"]
                 ktxt = (f"{k*100:.1f}% of bankroll" + (f" (${k*br:.0f})" if br else "")) if k > 0 else "no bet"
-                rows.append({"Side": side.upper(), "EV @-110": f"{ev*100:+.1f}%",
+                rows.append({"Logo": None, "Side": side.upper(), "EV @-110": f"{ev*100:+.1f}%",
                              "¼ Kelly stake": ktxt})
-        st.table(pd.DataFrame(rows))
+        st.dataframe(pd.DataFrame(rows), column_config=LOGO_CFG, hide_index=True, width="stretch")
         if pred.get("total_adjustments"):
             st.markdown("**Total adjustments:** " + " • ".join(
                 f"{n} {v:+.1f}" for n, v in pred["total_adjustments"]))
@@ -1135,7 +1175,8 @@ def predictor_tab(g, away, home):
         c2.metric("Elo win prob", f"{home} {pred['p_elo']*100:.0f}%")
     if pred["adjustments"]:
         st.markdown("**Adjustments applied:** " + " • ".join(
-            f"{a['module']} {a['team']} {a['pts']:+.1f}" for a in pred["adjustments"]))
+            f"{a['module']} {logo_img(a['team'], 16)}{a['team']} {a['pts']:+.1f}"
+            for a in pred["adjustments"]), unsafe_allow_html=True)
     for name, info in pred["angles"]:
         st.success(f"📐 **Angle:** {info['note']} — backtest: {info['record']} (2021-25)")
     st.caption("Base = de-vigged market consensus (85%) + Elo prior (15%) + backtested adjustments. "
@@ -1156,7 +1197,7 @@ def props_tab(g, away, home):
         hs = -float(g["spread_line"])  # nflverse is away-perspective -> flip to home
     lines = st.session_state.get(f"props_{away}_{home}", {})
     for team, opp in ((away, home), (home, away)):
-        st.markdown(f"**{team}** (vs {opp})")
+        st.markdown(f"{team_md(team)} (vs {team_md(opp, 20)})", unsafe_allow_html=True)
         tl = (-hs if team == away else hs) if hs is not None else None
         res = get_projections(team, opp, team_inj_map(team), tl)
         # 🧪 injury what-if simulator: pretend any player is OUT, watch volume reshuffle
@@ -1301,7 +1342,7 @@ def render_game(gi, g):
     with tabs[4]:
         c1, c2 = st.columns(2)
         for col, team in ((c1, away), (c2, home)):
-            col.markdown(f"**{team}**")
+            col.markdown(team_md(team), unsafe_allow_html=True)
             df_team = form_df(team)
             if df_team is not None:
                 col.dataframe(df_team, hide_index=True, width="stretch")
@@ -1311,10 +1352,11 @@ def render_game(gi, g):
         rows, summ = an.h2h(games, away, home, seasons=5)
         if rows:
             st.markdown(
-                f"**Last {summ['n']} meetings:** {away} {summ[away]['w']}W / {home} {summ[home]['w']}W "
+                f"**Last {summ['n']} meetings:** {team_md(away, 20)} {summ[away]['w']}W / "
+                f"{team_md(home, 20)} {summ[home]['w']}W "
                 f"• ATS: {away} {summ[away]['ats']}-{summ[home]['ats']} {home} "
                 f"• Totals: {summ['over']}O-{summ['under']}U" +
-                (f"-{summ['push']}P" if summ["push"] else ""))
+                (f"-{summ['push']}P" if summ["push"] else ""), unsafe_allow_html=True)
             st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
         else:
             st.info("No meetings in the last 5 seasons.")
@@ -1328,7 +1370,8 @@ for gi, (_, g) in enumerate(week_games.iterrows()):
     label = f"{away} @ {home}  •  {day} {g.get('gametime', '')} ET"
     is_open = gi in open_set
     hc1, hc2 = st.columns([11, 1])
-    hc1.markdown(f"**{label}**")
+    hc1.markdown(f"{matchup_md(away, home, 28)}"
+                 f"  •  {day} {g.get('gametime', '')} ET", unsafe_allow_html=True)
     if hc2.button("▾" if is_open else "▸", key=f"tog_{gi}", help="open/close game"):
         st.session_state["open_games"] = open_set ^ {gi}
         st.rerun()

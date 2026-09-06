@@ -1,0 +1,20 @@
+# Keep secrets, credentials, and local-only data OUT of the image.
+# Anything listed here is invisible to `COPY . .` in the Dockerfile.
+.git
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# runtime-mounted credentials (never bake into an image)
+.streamlit/secrets.toml
+auth.yaml
+
+# local caches/backups — Turso is the source of truth (55MB+ local)
+data/
+
+# not needed at runtime
+docs/
+*.md
+.dockerignore
+Dockerfile
