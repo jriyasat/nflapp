@@ -611,7 +611,7 @@ def standings_page():
                     rows = []
                     for t in sorted(an.DIVISIONS[div], key=lambda x: an._winpct(stats[x]), reverse=True):
                         s = stats[t]
-                        rows.append({"Logo": logo_url(t), "Team": t, "W": s["w"], "L": s["l"],
+                        rows.append({"Team": t, "Logo": logo_url(t), "W": s["w"], "L": s["l"],
                                      "T": s["t"], "PF": s["pf"], "PA": s["pa"],
                                      "Seed": str(seeds[t]) if t in seeds else ""})
                     st.markdown(f"**{div}**")
@@ -622,7 +622,7 @@ def standings_page():
         rows = []
         for t, s in stats.items():
             n = s["ats_w"] + s["ats_l"]
-            rows.append({"Logo": logo_url(t), "Team": t,
+            rows.append({"Team": t, "Logo": logo_url(t),
                          "ATS": f"{s['ats_w']}-{s['ats_l']}-{s['ats_p']}",
                          "Cover %": round(100 * s["ats_w"] / n, 1) if n else 0.0})
         rows.sort(key=lambda r: -r["Cover %"])
@@ -648,7 +648,7 @@ def _rankings_data(season):
         if t not in TEAM_SET:
             continue  # defunct franchises (STL/SD/OAK) — in history, not in current rankings
         d = r - prev.get(t, r)
-        rows.append({"#": len(rows) + 1, "Logo": logo_url(t), "Team": t, "Rating": round(r),
+        rows.append({"#": len(rows) + 1, "Team": t, "Logo": logo_url(t), "Rating": round(r),
                      "Δ wk": f"{'↑' if d > 0.5 else ('↓' if d < -0.5 else '–')} {d:+.0f}" if prev else "–"})
     return rows
 
