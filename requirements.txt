@@ -1,7 +1,12 @@
-streamlit
-pandas
-requests
-streamlit-authenticator
-bcrypt
-pyyaml
-libsql-client
+# Pinned 2026-09-05 to the versions verified in the Docker proving-ground image.
+# Pinning (a) makes builds reproducible Mac/Docker/Cloud and (b) forces
+# Streamlit Cloud to rebuild its environment — required for static logo serving
+# (enableStaticServing needs streamlit>=1.31; Cloud reboots don't reinstall deps).
+streamlit==1.63.0
+pandas==3.0.5
+numpy==2.5.2
+requests==2.34.2
+streamlit-authenticator==0.4.2
+bcrypt==5.0.0
+pyyaml==6.0.3
+libsql-client==0.3.1
