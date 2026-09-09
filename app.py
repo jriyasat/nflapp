@@ -150,6 +150,13 @@ TEAM_SET = {t for ts in an.DIVISIONS.values() for t in ts}
 LOGO_ALIAS = {"STL": "LAR", "SD": "LAC", "OAK": "LV"}  # relocated franchises -> current logo
 LOGO_CFG = {"Logo": st.column_config.ImageColumn("Logo", width="small")}
 
+# Logo source: jsDelivr CDN mirror of the public repo's static/logos/.
+# Streamlit Cloud's proxy/auth wall breaks its own /app/static/ route (logos 303/hang
+# there despite enableStaticServing); the CDN works behind any auth, anywhere.
+# NOTE: requires the repo to stay PUBLIC. If it ever goes private, switch LOGO_BASE
+# back to "/app/static/logos" (works locally + on any VPS we control).
+LOGO_BASE = "https://cdn.jsdelivr.net/gh/jriyasat/nflapp@main/static/logos"
+
 def _logo_team(t):
     """Resolve a team abbr (incl. historical) to the abbr that has a logo PNG."""
     return t if t in TEAM_SET else LOGO_ALIAS.get(t)
@@ -159,7 +166,7 @@ def logo_img(t, size=24):
     t = _logo_team(t)
     if not t:
         return ""
-    return (f'<img src="/app/static/logos/{t}.png" width="{size}" '
+    return (f'<img src="{LOGO_BASE}/{t}.png" width="{size}" '
             f'style="vertical-align:middle;border-radius:4px;margin-right:4px" '
             f'onerror="this.style.display=\'none\'">')
 
@@ -172,7 +179,7 @@ def matchup_md(away, home, size=24):
 def logo_url(t):
     """Logo URL for dataframe ImageColumn cells (None -> blank cell)."""
     t = _logo_team(t)
-    return f"/app/static/logos/{t}.png" if t else None
+    return f"{LOGO_BASE}/{t}.png" if t else None
 
 
 # top-of-page link to the explainer (hidden when already on it)
@@ -470,25 +477,29 @@ if page == "🔴 Live":
 
 # ---------------- pick'em page ----------------
 def _kickoff_passed(g):
+    """Pick lock for this game: 5 minutes before kickoff (mirrors db.PICK_LOCK)."""
     try:
         if pd.isna(g["gameday"]):
             return False
         gt = str(g.get("gametime", "13:00"))
         hh, mm = int(gt.split(":")[0]), int(gt.split(":")[1])
-        return pd.Timestamp.now() > g["gameday"] + pd.Timedelta(hours=hh, minutes=mm)
+        return (pd.Timestamp.now()
+                > g["gameday"] + pd.Timedelta(hours=hh, minutes=mm) - pd.Timedelta(minutes=5))
     except Exception:
         return False
 
 
 def pickem_page():
     st.header("🏆 Weekly Pick'em")
-    st.caption("Up to **5 games** against the spread, every week. Picks lock at kickoff. "
-               "The line is frozen at the moment you pick.")
+    st.caption("Up to **5 games** against the spread, every week. **Change picks freely until "
+               "5 minutes before each kickoff** — then they lock. Your line is whatever's "
+               "current at the moment you make (or change) a pick.")
     for w in range(1, week + 1):
         db.grade_pickem(games, season, w)
 
     mine = db.load_pickem(USER, season, week)
     picked = dict(zip(mine["game"], mine["pick"])) if not mine.empty else {}
+    line_by_game = dict(zip(mine["game"], mine["line"])) if not mine.empty else {}
     grade_by_game = dict(zip(mine["game"], mine["grade"])) if not mine.empty else {}
 
     st.subheader(f"Week {week} — your picks ({len(picked)}/5)")
@@ -498,10 +509,13 @@ def pickem_page():
         sp = g["spread_line"]
         locked = _kickoff_passed(g)
         line_txt = (f"{team_md(away, 20)} {sp:+.1f} / {team_md(home, 20)} {-sp:+.1f}") if pd.notna(sp) else "no line yet"
-        c0, c1, c2 = st.columns([3, 1, 1])
+        c0, c1, c2, c3 = st.columns([3, 1, 1, 0.4])
         my = picked.get(label)
+        my_line = line_by_game.get(label)
         c0.markdown(f"{matchup_md(away, home, 22)} — {line_txt}"
-                    + (f"  ✅ your pick: {team_md(my, 20)} ({grade_by_game.get(label, 'pending')})" if my else "")
+                    + (f"  ✅ your pick: {team_md(my, 20)}"
+                       + (f" ({my_line:+g})" if my_line is not None else "")
+                       + f" ({grade_by_game.get(label, 'pending')})" if my else "")
                     + ("  🔒 locked" if locked and not my else ""), unsafe_allow_html=True)
         if not locked and pd.notna(sp):
             full = len(picked) >= 5 and label not in picked
@@ -510,6 +524,10 @@ def pickem_page():
                 st.rerun()
             if c2.button(f"{home}", key=f"pk_h_{label}", disabled=full):
                 db.save_pickem(USER, season, week, label, home, float(-sp))
+                st.rerun()
+        if my and not locked:
+            if c3.button("✕", key=f"pk_x_{label}", help="remove this pick (frees a slot)"):
+                db.delete_pickem(USER, season, week, label)
                 st.rerun()
 
     st.subheader("🏆 Leaderboard")

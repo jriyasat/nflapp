@@ -256,6 +256,8 @@ def bump_usage(user, kind):
 
 
 # ---------------- pick'em league ----------------
+PICK_LOCK = pd.Timedelta(minutes=5)  # picks lock 5 min before kickoff (server-enforced)
+
 def save_pickem(user, season, week, game, pick, line):
     # server-side kickoff lock (UI buttons alone are not enforcement)
     try:
@@ -268,17 +270,41 @@ def save_pickem(user, season, week, game, pick, line):
             gt = str(g.get("gametime", "13:00"))
             hh, mm = int(gt.split(":")[0]), int(gt.split(":")[1])
             kickoff = g["gameday"] + pd.Timedelta(hours=hh, minutes=mm)
-            if pd.Timestamp.now() > kickoff:
-                raise ValueError(f"picks locked at kickoff ({game})")
+            if pd.Timestamp.now() > kickoff - PICK_LOCK:
+                raise ValueError(f"picks locked 5 min before kickoff ({game})")
     except ValueError:
         raise
     except Exception:
         pass  # data lookup failed → allow; UI still guards
     with _connect() as c:
+        # INSERT OR REPLACE = re-picking overwrites side AND line (last change wins)
         c.execute("INSERT OR REPLACE INTO pickem (id, user, season, week, game, pick, line, created_at, grade)"
                   " VALUES (?,?,?,?,?,?,?,?, COALESCE((SELECT grade FROM pickem WHERE user=? AND season=? AND week=? AND game=?), 'pending'))",
                   (str(uuid.uuid4())[:8], user, season, week, game, pick, line,
                    time.strftime("%Y-%m-%d %H:%M"), user, season, week, game))
+
+
+def delete_pickem(user, season, week, game):
+    """Remove a pick (frees a slot in the 5). Same 5-min lock as saving."""
+    try:
+        games = dl.load_games()
+        away, home = game.split(" @ ")
+        m = games[(games["season"] == season) & (games["week"] == week)
+                  & (games["away_team"] == away) & (games["home_team"] == home)]
+        if not m.empty:
+            g = m.iloc[0]
+            gt = str(g.get("gametime", "13:00"))
+            hh, mm = int(gt.split(":")[0]), int(gt.split(":")[1])
+            kickoff = g["gameday"] + pd.Timedelta(hours=hh, minutes=mm)
+            if pd.Timestamp.now() > kickoff - PICK_LOCK:
+                raise ValueError(f"picks locked 5 min before kickoff ({game})")
+    except ValueError:
+        raise
+    except Exception:
+        pass  # data lookup failed → allow; UI still guards
+    with _connect() as c:
+        c.execute("DELETE FROM pickem WHERE user=? AND season=? AND week=? AND game=?",
+                  (user, season, week, game))
 
 
 def load_pickem(user, season, week):
