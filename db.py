@@ -259,6 +259,9 @@ def bump_usage(user, kind):
 PICK_LOCK = pd.Timedelta(minutes=5)  # picks lock 5 min before kickoff (server-enforced)
 
 def save_pickem(user, season, week, game, pick, line):
+    # numpy int64 from the games df serializes as a BLOB in libsql — coerce to
+    # plain int or rows become invisible to integer queries (the "model picks" bug)
+    season, week = int(season), int(week)
     # server-side kickoff lock (UI buttons alone are not enforcement)
     try:
         games = dl.load_games()
@@ -286,6 +289,7 @@ def save_pickem(user, season, week, game, pick, line):
 
 def delete_pickem(user, season, week, game):
     """Remove a pick (frees a slot in the 5). Same 5-min lock as saving."""
+    season, week = int(season), int(week)
     try:
         games = dl.load_games()
         away, home = game.split(" @ ")
@@ -308,13 +312,15 @@ def delete_pickem(user, season, week, game):
 
 
 def load_pickem(user, season, week):
+    season, week = int(season), int(week)
     with _connect() as c:
-        rows = c.execute("SELECT game, pick, line, grade FROM pickem"
+        rows = c.execute("SELECT game, pick, line, grade, created_at FROM pickem"
                          " WHERE user=? AND season=? AND week=?", (user, season, week)).fetchall()
-    return pd.DataFrame(rows, columns=["game", "pick", "line", "grade"])
+    return pd.DataFrame(rows, columns=["game", "pick", "line", "grade", "created_at"])
 
 
 def load_pickem_week(season, week):
+    season, week = int(season), int(week)
     with _connect() as c:
         rows = c.execute("SELECT user, game, pick, line, grade FROM pickem"
                          " WHERE season=? AND week=?", (season, week)).fetchall()
@@ -323,6 +329,7 @@ def load_pickem_week(season, week):
 
 def grade_pickem(games, season, week):
     """Grade pending picks for a completed week (team-perspective line: neg = favorite)."""
+    season, week = int(season), int(week)
     wk = games[(games["season"] == season) & (games["week"] == week)
                & games["result"].notna()]
     if wk.empty:
@@ -347,6 +354,7 @@ def grade_pickem(games, season, week):
 
 
 def pickem_leaderboard(season):
+    season = int(season)
     with _connect() as c:
         rows = c.execute("SELECT user, grade FROM pickem WHERE season=? AND grade != 'pending'",
                          (season,)).fetchall()

@@ -494,6 +494,37 @@ def pickem_page():
     st.caption("Up to **5 games** against the spread, every week. **Change picks freely until "
                "5 minutes before each kickoff** — then they lock. Your line is whatever's "
                "current at the moment you make (or change) a pick.")
+
+    # 🤖 model picks — public immediately (transparency over gamesmanship; tailing is fine)
+    st.subheader(f"🤖 Model picks — Week {week}")
+    model_picks = db.load_pickem("model", season, week)
+    if model_picks.empty:
+        st.info("Model's picks drop with the Monday 8 AM brief — it plays its top-5 edge games, "
+                "at the lines posted when it enters.")
+    else:
+        GRADE_ICON = {"won": "✅ won", "lost": "❌ lost", "push": "➖ push", "pending": "⏳ pending"}
+        mp = model_picks.rename(columns={"game": "Game", "pick": "Pick",
+                                         "line": "Line", "grade": "Result"})
+        mp.insert(0, "Logo", mp["Pick"].map(logo_url))
+        mp["Line"] = mp["Line"].apply(lambda v: f"{float(v):+g}" if pd.notna(v) else "-")
+        mp["Result"] = mp["Result"].map(lambda g: GRADE_ICON.get(g, g))
+        st.dataframe(mp[["Logo", "Game", "Pick", "Line", "Result"]],
+                     column_config=LOGO_CFG, hide_index=True, width="stretch")
+        made_raw = model_picks["created_at"].dropna().max()
+        if made_raw:
+            ts = pd.Timestamp(made_raw)
+            made = (f"{ts:%a} {ts:%b} {ts.day}, "
+                    f"{ts.hour % 12 or 12}:{ts:%M} {'AM' if ts.hour < 12 else 'PM'}")
+            st.caption(f"🕐 Picks made **{made}** — locked at the lines posted at that moment.")
+        mrec = next((r for r in db.pickem_leaderboard(season) if r["user"] == "model"), None)
+        if mrec:
+            st.markdown(f"**Model pick'em record:** {mrec['record']} "
+                        f"({mrec['win_pct']*100:.0f}%)")
+        st.caption("⚠️ **PLEASE NOTE:** The model is **required to pick 5 games every week** in "
+                   "pick'em — those are the rules of the game, same as you. On the 📈 **Track "
+                   "Record** page it plays by its own discipline: it only logs picks where its "
+                   "edge vs the market is **2+ points**, graded at the closing line. Pick'em "
+                   "record = the model playing your game. Track Record = the model's real bets.")
     for w in range(1, week + 1):
         db.grade_pickem(games, season, w)
 
