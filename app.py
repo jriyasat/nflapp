@@ -147,7 +147,7 @@ def paywall(feature):
 
 # ---------------- team logos (shared; same pattern as the games list) ----------------
 TEAM_SET = {t for ts in an.DIVISIONS.values() for t in ts}
-LOGO_ALIAS = {"STL": "LAR", "SD": "LAC", "OAK": "LV"}  # relocated franchises -> current logo
+LOGO_ALIAS = {"STL": "LAR", "SD": "LAC", "OAK": "LV", "LA": "LAR"}  # relocated/legacy abbrs -> current logo
 LOGO_CFG = {"Logo": st.column_config.ImageColumn("Logo", width="small")}
 
 # Logo source: jsDelivr CDN mirror of the public repo's static/logos/.
@@ -180,6 +180,25 @@ def logo_url(t):
     """Logo URL for dataframe ImageColumn cells (None -> blank cell)."""
     t = _logo_team(t)
     return f"{LOGO_BASE}/{t}.png" if t else None
+
+def pick_logo(t, picked=False, grade_icon=None, size=76, model=False):
+    """Big pick'em-board logo. Green ring = your pick. Blue ring + 🤖 badge = model's
+    side. Both on one logo = you're riding with the model; opposite logos = fading it."""
+    lt = _logo_team(t)
+    if not lt:
+        return ""
+    if picked:
+        ring = "border:3px solid #7cffb2;box-shadow:0 0 14px #7cffb2aa;padding:3px;"
+    elif model:
+        ring = "border:3px solid #58a6ff;box-shadow:0 0 14px #58a6ff88;padding:3px;"
+    else:
+        ring = "border:3px solid transparent;"
+    img = f'<img src="{LOGO_BASE}/{lt}.png" style="width:{size}px;border-radius:14px;{ring}">'
+    robot = ("<span style='position:absolute;top:-10px;right:-10px;font-size:22px'>🤖</span>"
+             if model else "")
+    badge = f"<div style='font-size:20px;line-height:1'>{grade_icon}</div>" if grade_icon else ""
+    return (f"<div style='text-align:center'>"
+            f"<div style='position:relative;display:inline-block'>{img}{robot}</div>{badge}</div>")
 
 
 # top-of-page link to the explainer (hidden when already on it)
@@ -492,8 +511,9 @@ def _kickoff_passed(g):
 def pickem_page():
     st.header("🏆 Weekly Pick'em")
     st.caption("Up to **5 games** against the spread, every week. **Change picks freely until "
-               "5 minutes before each kickoff** — then they lock. Your line is whatever's "
-               "current at the moment you make (or change) a pick.")
+               "5 minutes before each kickoff** — then they lock. Tap a logo to pick, tap it "
+               "again to remove. Your line is whatever's current at the moment you make "
+               "(or change) a pick.")
 
     # 🤖 model picks — public immediately (transparency over gamesmanship; tailing is fine)
     st.subheader(f"🤖 Model picks — Week {week}")
@@ -503,13 +523,15 @@ def pickem_page():
                 "at the lines posted when it enters.")
     else:
         GRADE_ICON = {"won": "✅ won", "lost": "❌ lost", "push": "➖ push", "pending": "⏳ pending"}
-        mp = model_picks.rename(columns={"game": "Game", "pick": "Pick",
-                                         "line": "Line", "grade": "Result"})
-        mp.insert(0, "Logo", mp["Pick"].map(logo_url))
-        mp["Line"] = mp["Line"].apply(lambda v: f"{float(v):+g}" if pd.notna(v) else "-")
-        mp["Result"] = mp["Result"].map(lambda g: GRADE_ICON.get(g, g))
-        st.dataframe(mp[["Logo", "Game", "Pick", "Line", "Result"]],
-                     column_config=LOGO_CFG, hide_index=True, width="stretch")
+        show = pd.DataFrame({
+            "Pick": model_picks["pick"].map(logo_url),  # logo IS the pick
+            "Game": model_picks["game"],
+            "Line": model_picks["line"].apply(lambda v: f"{float(v):+g}" if pd.notna(v) else "-"),
+            "Result": model_picks["grade"].map(lambda g: GRADE_ICON.get(g, g)),
+        })
+        st.dataframe(show,
+                     column_config={"Pick": st.column_config.ImageColumn("Pick", width="small")},
+                     hide_index=True, width="stretch")
         made_raw = model_picks["created_at"].dropna().max()
         if made_raw:
             ts = pd.Timestamp(made_raw)
@@ -533,33 +555,66 @@ def pickem_page():
     line_by_game = dict(zip(mine["game"], mine["line"])) if not mine.empty else {}
     grade_by_game = dict(zip(mine["game"], mine["grade"])) if not mine.empty else {}
 
-    st.subheader(f"Week {week} — your picks ({len(picked)}/5)")
+    st.markdown("""<style>
+.stElementContainer:has(.sticky-picks) { position: sticky; top: 2.9rem; z-index: 999;
+  background: rgba(14,17,23,0.97); border-bottom: 1px solid #2a2f3a; }
+.sticky-picks { padding: 0.45rem 0 0.35rem; font-size: 1.3rem; font-weight: 700; }
+</style>""", unsafe_allow_html=True)
+    st.markdown(f"<div class='sticky-picks'>🏆 Week {week} — your picks "
+                f"(<span style='color:#7cffb2'>{len(picked)}/5</span>)</div>",
+                unsafe_allow_html=True)
+    model_side = (dict(zip(model_picks["game"], model_picks["pick"]))
+                  if not model_picks.empty else {})
+    GRADE_MARK = {"won": "✅", "lost": "❌", "push": "➖"}
     for _, g in week_games.iterrows():
         away, home = g["away_team"], g["home_team"]
         label = f"{away} @ {home}"
+        mside = model_side.get(label)
         sp = g["spread_line"]
         locked = _kickoff_passed(g)
-        line_txt = (f"{team_md(away, 20)} {sp:+.1f} / {team_md(home, 20)} {-sp:+.1f}") if pd.notna(sp) else "no line yet"
-        c0, c1, c2, c3 = st.columns([3, 1, 1, 0.4])
         my = picked.get(label)
-        my_line = line_by_game.get(label)
-        c0.markdown(f"{matchup_md(away, home, 22)} — {line_txt}"
-                    + (f"  ✅ your pick: {team_md(my, 20)}"
-                       + (f" ({my_line:+g})" if my_line is not None else "")
-                       + f" ({grade_by_game.get(label, 'pending')})" if my else "")
-                    + ("  🔒 locked" if locked and not my else ""), unsafe_allow_html=True)
+        grade = grade_by_game.get(label)
+        gicon = GRADE_MARK.get(grade) if my and grade != "pending" else None
+        day = g["gameday"].strftime("%a %b %d") if pd.notna(g["gameday"]) else ""
+        ca, cm, ch = st.columns([2, 1, 2])
+        ca.markdown(pick_logo(away, my == away, gicon if my == away else None,
+                              model=mside == away), unsafe_allow_html=True)
+        ch.markdown(pick_logo(home, my == home, gicon if my == home else None,
+                              model=mside == home), unsafe_allow_html=True)
+        if pd.notna(sp):
+            fav = sp if sp < 0 else -sp  # favorite's line, always negative
+            lt = "PK" if sp == 0 else f"{fav:+.1f}"
+        else:
+            lt = "—"
+        cm.markdown(f"<div style='text-align:center;padding-top:14px'>"
+                    f"<span style='font-size:24px;font-weight:700'>{lt}</span><br>"
+                    f"<span style='color:#888'>@</span><br>"
+                    f"<small style='color:#888'>{day} {g.get('gametime', '')} ET"
+                    f"{' 🔒' if locked else ''}</small></div>", unsafe_allow_html=True)
         if not locked and pd.notna(sp):
             full = len(picked) >= 5 and label not in picked
-            if c1.button(f"{away}", key=f"pk_a_{label}", disabled=full):
-                db.save_pickem(USER, season, week, label, away, float(sp))
-                st.rerun()
-            if c2.button(f"{home}", key=f"pk_h_{label}", disabled=full):
-                db.save_pickem(USER, season, week, label, home, float(-sp))
-                st.rerun()
-        if my and not locked:
-            if c3.button("✕", key=f"pk_x_{label}", help="remove this pick (frees a slot)"):
-                db.delete_pickem(USER, season, week, label)
-                st.rerun()
+            if ca.button(f"{away}", key=f"pk_a_{label}",
+                         type="primary" if my == away else "secondary",
+                         use_container_width=True):
+                if my == away:
+                    db.delete_pickem(USER, season, week, label)
+                    st.rerun()
+                elif full:
+                    st.warning("You're at 5/5 — tap one of your glowing picks to remove it first.")
+                else:
+                    db.save_pickem(USER, season, week, label, away, float(sp))
+                    st.rerun()
+            if ch.button(f"{home}", key=f"pk_h_{label}",
+                         type="primary" if my == home else "secondary",
+                         use_container_width=True):
+                if my == home:
+                    db.delete_pickem(USER, season, week, label)
+                    st.rerun()
+                elif full:
+                    st.warning("You're at 5/5 — tap one of your glowing picks to remove it first.")
+                else:
+                    db.save_pickem(USER, season, week, label, home, float(-sp))
+                    st.rerun()
 
     st.subheader("🏆 Leaderboard")
     lb = db.pickem_leaderboard(season)
@@ -579,8 +634,9 @@ def pickem_page():
             st.subheader("Everyone's picks (locked games)")
             vis = vis.rename(columns={"user": "Player", "game": "Game", "pick": "Pick",
                                       "line": "Line", "grade": "Result"})
-            vis.insert(0, "Logo", vis["Pick"].map(logo_url))
-            st.dataframe(vis, column_config=LOGO_CFG, hide_index=True, width="stretch")
+            vis["Pick"] = vis["Pick"].map(logo_url)  # logo IS the pick
+            st.dataframe(vis, column_config={"Pick": st.column_config.ImageColumn("Pick", width="small")},
+                         hide_index=True, width="stretch")
 
 if page == "🏆 Pick'em":
     pickem_page()
@@ -1021,6 +1077,23 @@ if page == "⚙️ Settings":
     st.stop()
 
 # ---------------- track record page ----------------
+def _pick_clv(p):
+    """Closing line value: pts of line the model captured vs the close, in its favor.
+    market_val_log is home-perspective; closing_line is team-perspective (set at grading)."""
+    if p["grade"] not in ("won", "lost", "push"):
+        return None
+    try:
+        if p["pick_type"] == "spread":
+            away_team = str(p["game"]).split(" @ ")[0]
+            log_line = float(p["market_val_log"])
+            team_log = -log_line if p["side"] == away_team else log_line
+            return team_log - float(p["closing_line"])
+        sign = 1.0 if p["side"] == "over" else -1.0
+        return sign * (float(p["closing_line"]) - float(p["market_val_log"]))
+    except Exception:
+        return None
+
+
 def track_record_page():
     st.header("📈 Model Track Record")
     picks = tracker.grade_predictions(games)
@@ -1038,8 +1111,46 @@ def track_record_page():
     c[2].metric("Profit (flat -110)", f"{profit:+.2f}u")
     c[3].metric("Graded picks", s["spread"]["n"] + s["total"]["n"])
     c[4].metric("Pending", s["pending"])
-    st.caption("Breakeven at -110 is 52.4%. Graded at the **closing** line — the honest number. "
-               "Picks are logged daily by the 8 AM brief as edges appear.")
+    # CLV vs closing line — the fast signal. Did the line the model locked (market_val_log,
+    # converted to the pick's perspective) beat the number it closed at?
+    clvs = []
+    for _, p in picks[picks["grade"].isin(["won", "lost", "push"])].iterrows():
+        if pd.isna(p["closing_line"]) or pd.isna(p["market_val_log"]):
+            continue
+        if p["pick_type"] == "spread":
+            home_t = p["game"].split(" @ ")[1]
+            taken = float(p["market_val_log"]) if p["side"] == home_t else -float(p["market_val_log"])
+            clvs.append(taken - float(p["closing_line"]))
+        else:
+            taken = float(p["market_val_log"])
+            clvs.append((float(p["closing_line"]) - taken) if p["side"] == "over"
+                        else (taken - float(p["closing_line"])))
+    if clvs:
+        beat = sum(1 for v in clvs if v > 0)
+        st.markdown(f"**📏 CLV vs close:** avg **{sum(clvs)/len(clvs):+.2f} pts** · "
+                    f"beat the close **{beat/len(clvs)*100:.0f}%** ({beat}/{len(clvs)}) — "
+                    f"the fast signal: positive avg + >52% beat-rate = real edge forming, "
+                    f"readable weeks before win% is.")
+    else:
+        st.caption("📏 CLV vs the closing line appears once picks grade — it becomes "
+                   "meaningful weeks before the win% above it is.")
+    st.caption("Breakeven at -110 is 52.4%. Picks lock the morning an edge first hits 2+ pts "
+               "(8 AM brief) at that morning's line — never edited after. "
+               "Graded at the **closing** line — the honest number.")
+
+    clv = picks.apply(_pick_clv, axis=1).dropna()
+    if len(clv):
+        cc = st.columns(2)
+        cc[0].metric("📈 Avg CLV", f"{clv.mean():+.2f} pts")
+        cc[1].metric("🎯 Beat the close", f"{(clv > 0).mean()*100:.0f}% "
+                     f"({int((clv > 0).sum())}/{len(clv)})")
+        st.caption("CLV = the line the model took vs where it closed, in the model's favor. "
+                   "Positive = the model was ahead of the market. Beating the close >53% over "
+                   "100+ picks is the strongest known signal of a real edge — and it becomes "
+                   "meaningful in weeks, not seasons.")
+    else:
+        st.caption("CLV metrics appear once picks are graded — the fast signal: does the model "
+                   "beat the closing line?")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -1063,9 +1174,10 @@ def track_record_page():
     show = picks.copy()
     show["profit"] = show["profit"].apply(lambda v: f"{float(v):+.2f}" if pd.notna(v) and str(v) != "" else "…")
     show["closing_line"] = show["closing_line"].apply(lambda v: f"{float(v):+.1f}" if pd.notna(v) and str(v) != "" else "…")
+    show["clv"] = picks.apply(_pick_clv, axis=1).apply(lambda v: f"{v:+.2f}" if pd.notna(v) else "…")
     show.insert(0, "Logo", show["side"].map(logo_url))
     st.dataframe(show[["Logo", "logged_at", "game", "pick_type", "side", "model_val",
-                       "market_val_log", "edge_log", "closing_line", "grade", "profit"]].iloc[::-1],
+                       "market_val_log", "edge_log", "closing_line", "clv", "grade", "profit"]].iloc[::-1],
                  column_config=LOGO_CFG, hide_index=True, width="stretch")
 
 if page == "📈 Track Record":
@@ -1076,13 +1188,24 @@ if page == "📈 Track Record":
 def fmt_ml(v):
     return f"{v:+d}" if isinstance(v, (int, float)) else "-"
 
-def lines_block(away, home, espn_o, books):
+def lines_block(g, away, home, espn_o, books):
+    # model context — shared by the chart overlay and the pinned table row
+    wind_mph = None
+    if pd.notna(g["gameday"]) and g["gameday"] <= pd.Timestamp.now() + pd.Timedelta(days=15):
+        wind_mph, _ = wx.wind_for_game(g)
+    pred = pr.predict_game(g, elo, books=books, espn=espn_o,
+                           injuries=nv_injuries, wind_mph=wind_mph)
     hist = db.line_history(f"{away} @ {home}")
     if len(hist) >= 2:
-        st.caption("📉 Line movement (daily snapshots, away-team spread)")
+        st.caption("📉 Line movement (daily snapshots, away-team spread) — flat line = current model")
         m1, m2 = st.columns(2)
-        m1.line_chart(hist.set_index("ts")[["spread_away"]], y_label="spread (away)")
-        m2.line_chart(hist.set_index("ts")[["total"]], y_label="total")
+        move = hist.set_index("ts")[["spread_away"]].copy()
+        move["🤖 model (now)"] = round(-pred["model_spread"], 2)  # home-persp -> away-persp
+        m1.line_chart(move, y_label="spread (away)")
+        tot = hist.set_index("ts")[["total"]].copy()
+        if pred.get("model_total") is not None:
+            tot["🤖 model (now)"] = round(pred["model_total"], 1)
+        m2.line_chart(tot, y_label="total")
     rows = []
     if books:
         for bk, e in books.items():
@@ -1101,10 +1224,20 @@ def lines_block(away, home, espn_o, books):
             "Total": f"{espn_o['over_under']:.1f}" if espn_o.get("over_under") else "-",
             "ML": f"{away} {fmt_ml(espn_o.get('away_ml'))} / {home} {fmt_ml(espn_o.get('home_ml'))}",
         })
-    if rows:
-        st.table(pd.DataFrame(rows))
-    else:
-        st.info("No live lines posted yet for this game.")
+    # pinned 🤖 MODEL row: model spread + total next to the market, ⚡ when |edge| >= 1.5
+    edge = pred.get("edge_pts")
+    badge = " ⚡ VALUE" if edge is not None and abs(edge) >= 1.5 else ""
+    side = home if (edge or 0) > 0 else away
+    rows.insert(0, {
+        "Book": f"🤖 MODEL{badge}",
+        "Spread": fmt_spread(pred["model_spread"], home, away)
+                  + (f" (edge {abs(edge):.1f} on {side})" if badge else ""),
+        "Total": f"{pred['model_total']:.1f}" if pred.get("model_total") is not None else "-",
+        "ML": "—",
+    })
+    st.table(pd.DataFrame(rows))
+    if not books and not espn_o:
+        st.caption("No live lines posted yet — model row is an Elo-only estimate.")
     if books:
         best = an.line_shopping(books)
         if best.get("books_disagree"):
@@ -1387,7 +1520,7 @@ def render_game(gi, g):
         else:
             paywall("The SGP correlation finder")
     with tabs[3]:
-        lines_block(away, home, espn_odds.get((away, home)), books_by_abbr.get((away, home)))
+        lines_block(g, away, home, espn_odds.get((away, home)), books_by_abbr.get((away, home)))
     with tabs[4]:
         c1, c2 = st.columns(2)
         for col, team in ((c1, away), (c2, home)):

@@ -66,6 +66,12 @@ naive trailing-10 as line proxy; real books are smarter — final exam is live
 CLV/hit-rate in the app. Rushing's edge mechanism: carry share + game script
 is far more stable than receiving/QB variance.
 
+> ⚠️ **Public-framing note (Sept 2026):** the 61.1% lean figure is validated
+> only against a naive proxy line, NOT real market prop lines (historical prop
+> closers aren't freely available). Treat it as "beats a naive baseline," not
+> "beats the books" — do not quote it externally. A live-line props track
+> record (model vs Odds API lines, graded at close) is the planned real gate.
+
 ## Sign-bug incident (Aug 24, 2026)
 
 Spread adjustments were applied with flipped sign (boosted injured/rested teams).

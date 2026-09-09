@@ -59,6 +59,9 @@ def load_games():
     if _MEMO.get("games_mt") == mt:
         return _MEMO["games"]
     df = pd.read_csv(path, low_memory=False)
+    # nflverse calls the Rams "LA"; the rest of the app (divisions, logos, ESPN) uses "LAR".
+    # Without this the Rams silently miss standings, rankings, injury adj, and logos.
+    df[["home_team", "away_team"]] = df[["home_team", "away_team"]].replace({"LA": "LAR"})
     for col in ["away_score", "home_score", "spread_line", "total_line",
                 "away_rest", "home_rest", "away_moneyline", "home_moneyline"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
