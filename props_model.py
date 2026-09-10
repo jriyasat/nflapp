@@ -203,6 +203,7 @@ def edges_vs_lines(projections, props_lines):
                 "line": line["point"], "edge": round(edge, 1),
                 "edge_pct": round(edge / line["point"] * 100, 1) if line["point"] else 0,
                 "over_price": line.get("over_price"), "under_price": line.get("under_price"),
+                "over_book": line.get("over_book"), "under_book": line.get("under_book"),
                 "n_books": line.get("n_books", 0),
                 "lean": "OVER" if edge > 0 else "UNDER",
             }

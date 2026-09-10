@@ -260,7 +260,7 @@ authenticator.logout("🚪 Log out", "sidebar")
 st.sidebar.caption("21+ · Entertainment & informational purposes only — not betting advice. "
                    "If gambling stops being fun: **1-800-GAMBLER**. See **📜 Terms**.")
 season, week = dl.current_season_week(games)
-season = st.sidebar.number_input("Season", 2020, 2030, season)
+season = st.sidebar.number_input("Season", 2020, 2030, max(2020, min(2030, season)))
 weeks = sorted(games[(games["season"] == season) & (games["game_type"] == "REG")]["week"].unique())
 week = st.sidebar.selectbox("Week", weeks, index=weeks.index(week) if week in weeks else 0)
 KEY_FILE = os.path.join(dl.CACHE, "odds_api_key.txt")
@@ -1527,8 +1527,19 @@ def predictor_tab(g, away, home):
                "EV assumes -110; Kelly shown at ¼ fraction. Historical ≠ future — size accordingly.")
 
 # ---------------- props UI ----------------
-PROJ_COLS = [("proj_pass", "Pass Yds (proj)"), ("proj_rush", "Rush Yds (proj)"),
-             ("proj_rec_yds", "Rec Yds (proj)"), ("proj_rec", "Receptions (proj)")]
+PROJ_COLS = [("proj_pass", "Pass Yds"), ("proj_rush", "Rush Yds"),
+             ("proj_rec_yds", "Rec Yds"), ("proj_rec", "Receptions")]
+
+BOOK_NAMES = {"draftkings": "DraftKings", "fanduel": "FanDuel", "betmgm": "BetMGM",
+              "caesars": "Caesars", "bovada": "Bovada", "mybookieag": "MyBookie",
+              "betonlineag": "BetOnline", "williamhill_us": "Caesars", "espnbet": "ESPN BET",
+              "betrivers": "BetRivers", "fanatics": "Fanatics", "hardrockbet": "Hard Rock"}
+
+
+def _book_name(key):
+    if not key:
+        return "—"
+    return BOOK_NAMES.get(key, key.replace("_", " ").title())
 
 def props_tab(g, away, home):
     if player_stats is None:
@@ -1546,6 +1557,7 @@ def props_tab(g, away, home):
             lines = cached
             st.session_state[f"props_{away}_{home}"] = cached
             st.session_state[f"props_ts_{away}_{home}"] = ts
+    rows = []
     for team, opp in ((away, home), (home, away)):
         st.markdown(f"{team_md(team)} (vs {team_md(opp, 20)})", unsafe_allow_html=True)
         tl = (-hs if team == away else hs) if hs is not None else None
@@ -1566,32 +1578,43 @@ def props_tab(g, away, home):
             st.warning("🚑 Benched: " + ", ".join(f"{b['player']} ({b['status']})" for b in res["benched"])
                        + " — volume redistributed")
         projs = pm.edges_vs_lines(res["players"], lines)
-        rows = []
         for p in projs:
             name = p["player"] + (" ⚠️" if p.get("flag") else "")
             if p.get("boost"):
                 name += f" ↑{p['boost']:.2f}x"
             if p.get("rush_v2"):
                 name += " ⚡"
-            row = {"Player": name, "Pos": p["pos"]}
             for col, label in PROJ_COLS:
                 v = p.get(col)
                 if v is None:
                     continue
                 e = p.get("edges", {}).get(col)
                 if e:
+                    over = e["lean"] == "OVER"
+                    book = e.get("over_book") if over else e.get("under_book")
+                    price = e.get("over_price") if over else e.get("under_price")
+                    bb = _book_name(book)
+                    if book and price is not None:
+                        bb += f" {price:+.0f}"
                     mark = "🟢" if abs(e["edge_pct"]) >= 8 else "⚪"
                     hr = (pm.hit_rate(player_stats, p["player_id"], col, e["line"])
                           if p.get("player_id") else None)
-                    trend = (f" · L{hr['n']} {'O' if hr['overs'] >= hr['unders'] else 'U'} "
-                             f"{max(hr['overs'], hr['unders'])}-{min(hr['overs'], hr['unders'])}") if hr else ""
-                    row[label] = (f"{v:.0f} | {e['line']} {mark} "
-                                  f"{e['lean']} {abs(e['edge']):.0f} ({e['edge_pct']:+.0f}%){trend}")
+                    l5 = (f"{'O' if hr['overs'] >= hr['unders'] else 'U'} "
+                          f"{max(hr['overs'], hr['unders'])}-{min(hr['overs'], hr['unders'])}") if hr else ""
+                    rows.append({"Team": team, "Player": name, "Prop": label,
+                                 "Proj": round(float(v)), "Line": e["line"], "Best Book": bb,
+                                 "Edge": f"{mark} {e['lean']} {e['edge_pct']:+.0f}%",
+                                 "L5": l5, "_sort": abs(e["edge_pct"])})
                 else:
-                    row[label] = f"{v:.0f}"
-            rows.append(row)
+                    rows.append({"Team": team, "Player": name, "Prop": label,
+                                 "Proj": round(float(v)), "Line": None, "Best Book": "—",
+                                 "Edge": "—", "L5": "", "_sort": -1})
+    rows.sort(key=lambda r: -r["_sort"])
+    for r in rows:
+        r.pop("_sort")
+    if rows:
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    st.caption("**(proj)** = NFL Edge model projection — *our* number, built from player stats. "
+    st.caption("**Proj** = NFL Edge model projection — *our* number, built from player stats. "
                "Not a book line.")
     if lines:
         ts = st.session_state.get(f"props_ts_{away}_{home}")
@@ -1599,9 +1622,9 @@ def props_tab(g, away, home):
             st.caption(f"🕐 Lines as of {pd.Timestamp.fromtimestamp(ts).strftime('%a %-I:%M %p')} "
                        "— prop lines auto-load Mon & Sat, cached between runs "
                        "(spreads/totals stay live).")
-        st.caption("Format: **(proj) = our projection | book line lean ±edge (%)** — 🟢 = edge ≥8%. "
-                   "Lines = median across books. ⚡ = v2 rushing model (backtest-validated: "
-                   "61% lean hit 2023-25, see docs/BACKTESTS.md).")
+        st.caption("🟢 = edge ≥8% (line = median across books) · **Best Book** = best price for the lean · "
+                   "**L5** = his over/under record vs that line in his last 5 games · "
+                   "⚡ = v2 rushing model (backtest-validated: 61% lean hit 2023-25, see docs/BACKTESTS.md).")
         if api_key and st.button("↻ Refresh prop lines", key=f"refreshprops_{away}_{home}",
                                  help="Fetch fresh lines for THIS game now (~4 API credits — "
                                       "admin unlimited, otherwise counts as your daily load)"):

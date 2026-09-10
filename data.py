@@ -54,8 +54,10 @@ def load_games():
     if not _fresh(path, GAMES_CACHE_H * 3600):
         r = requests.get(GAMES_URL, timeout=60)
         r.raise_for_status()
-        with open(path, "wb") as f:
+        tmp = path + ".tmp"  # atomic: concurrent readers never see a partial file
+        with open(tmp, "wb") as f:
             f.write(r.content)
+        os.replace(tmp, path)
     mt = os.path.getmtime(path)
     if _MEMO.get("games_mt") == mt:
         return _MEMO["games"]
@@ -116,8 +118,10 @@ def _get_json(url, cache_name, max_age_min, params=None, service=None):
                                       "Referer": "https://www.espn.com/"})
             r.raise_for_status()
             data = r.json()
-            with open(path, "w") as f:
+            tmp = path + ".tmp"  # atomic: concurrent readers never see a partial file
+            with open(tmp, "w") as f:
                 json.dump(data, f)
+            os.replace(tmp, path)
             return data
         except Exception as e:
             last_err = e
@@ -276,8 +280,10 @@ def load_player_stats():
             try:
                 r = requests.get(PLAYER_STATS_URL % s, timeout=120)
                 if r.status_code == 200 and len(r.content) > 100:
-                    with open(path, "wb") as f:
+                    tmp = path + ".tmp"  # atomic: concurrent readers never see a partial file
+                    with open(tmp, "wb") as f:
                         f.write(r.content)
+                    os.replace(tmp, path)
                 else:
                     continue
             except Exception:
@@ -402,7 +408,7 @@ _PRACTICE_SHORT = {"Did Not Participate In Practice": "DNP",
                    "Full Participation in Practice": "FP"}
 
 
-def nflverse_injuries(season=None, max_age_h=GAMES_CACHE_H):
+def nflverse_injuries(season=None, max_age_h=1):
     """Official NFL injury report via nflverse. Returns {team: [rows]}, plus a label
     like '2025 W18 (REG)'. Falls back to prior season file if current not published.
     max_age_h controls disk-cache freshness — the Injury Report Watch passes 0.5h
@@ -417,8 +423,10 @@ def nflverse_injuries(season=None, max_age_h=GAMES_CACHE_H):
             try:
                 r = requests.get(NFLVERSE_INJ % s, timeout=60)
                 if r.status_code == 200 and len(r.content) > 100:
-                    with open(path, "wb") as f:
+                    tmp = path + ".tmp"  # atomic: concurrent readers never see a partial file
+                    with open(tmp, "wb") as f:
                         f.write(r.content)
+                    os.replace(tmp, path)
                 else:
                     continue
             except Exception:
@@ -444,7 +452,8 @@ def nflverse_injuries(season=None, max_age_h=GAMES_CACHE_H):
                 "practice": _PRACTICE_SHORT.get(practice_v, "") if pd.notna(practice_v) else "",
             })
         gt = latest.iloc[0].get("game_type", latest.iloc[0].get("season_type", "REG"))
-        out[team] = {"rows": rows, "label": f"{season} W{int(latest.iloc[0]['week'])} ({gt})"}
+        # nflverse calls the Rams "LA"; the rest of the app uses "LAR" (same fix as load_games)
+        out["LAR" if team == "LA" else team] = {"rows": rows, "label": f"{season} W{int(latest.iloc[0]['week'])} ({gt})"}
     return out, "ok"
 
 
