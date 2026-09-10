@@ -51,12 +51,23 @@ def main():
     if due.empty:
         return  # nothing kicking off soon — silent
     abbr_to_name = {v: k for k, v in dl.TEAM_NAME_TO_ABBR.items()}
-    fetched, empty, failed = [], [], []
+    fetched, skipped, empty, failed = [], [], [], []
     for _, g in due.iterrows():
         away, home = g["away_team"], g["home_team"]
         an, hn = abbr_to_name.get(away, away), abbr_to_name.get(home, home)
         try:
-            dl.bust_event_props_cache(an, hn)  # force a fresh fetch on schedule
+            # Cost control on the daily schedule: only spend credits when the
+            # shared cache is missing/stale, OR the game kicks off within 36h
+            # and the cached lines are >20h old (game-day freshness).
+            cached, ts = dl.cached_event_props(an, hn)
+            gd = pd.to_datetime(g["gameday"], errors="coerce")
+            imminent = bool(pd.notna(gd) and (gd - now) <= pd.Timedelta(hours=36))
+            cache_old = bool(ts is not None and (now.timestamp() - ts) > 20 * 3600)
+            if cached is not None and not (imminent and cache_old):
+                skipped.append(f"{away}@{home}")
+                continue
+            if imminent and cache_old:
+                dl.bust_event_props_cache(an, hn)
             props = dl.odds_api_event_props(key, an, hn)
             (fetched if props else empty).append(f"{away}@{home}")
         except Exception as e:

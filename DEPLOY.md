@@ -13,6 +13,7 @@
 |---|---|---|---|
 | NFL Morning Brief | 7062a432915e | daily 8:00 ET | Watchdog digest: line movers, injury escalations, model edges ≥2pts, totals leans, wind alerts, Monday recap edition. Silent when nothing changed. Logs picks to Turso + line history |
 | NFL Inactives Watch | 98404b02208d | */15 min, 11:00-23:00 Thu/Sat/Sun/Mon | Gameday inactives ~90min pre-kickoff (ESPN summary endpoint), deduped per game |
+| NFL Props Warm (Daily) | c34350045782 | daily 10:00 ET | Warms shared prop-line cache for all games within 4 days; fetches only missing/stale games + refreshes games within 36h of kickoff (quota-safe on dedicated ODDS_API_KEY_PROPS). Replaced the old Mon+Sat pair on 2026-09-10 |
 | NFL Edge keep-alive | 0627253ba560 | 8:05 + 20:05 daily | Pings /healthz; alerts only if cloud app is down |
 | Playoff build reminder | f32fe4ea0898 | one-shot 2026-12-01 | Remind Jeff to build POST support (week picker, journal/tracker grading, brief) — DECIDED: preseason skipped, pick'em shelved |
 
