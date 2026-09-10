@@ -284,11 +284,58 @@ if IS_ADMIN:
             st.sidebar.success("Key saved to disk — persists across restarts")
         except Exception:
             pass
-if st.sidebar.button("🔄 Refresh live data"):
+try:
+    props_api_key = st.secrets.get("ODDS_API_KEY_PROPS", "") or api_key  # dedicated props quota pool
+except Exception:
+    props_api_key = api_key
+def _lines_updated_at():
+    import glob as _g
+    fs = _g.glob(os.path.join(dl.CACHE, "odds_api.json")) + _g.glob(os.path.join(dl.CACHE, "espn_*.json"))
+    return max((os.path.getmtime(f) for f in fs), default=None)
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _board_rows(season, week):
+    """Week-at-a-glance board: model vs market for every game (15-min cache)."""
+    wk = games[(games["season"] == season) & (games["game_type"] == "REG") &
+               (games["week"] == week)].sort_values(["gameday", "gametime"])
+    ts = _lines_updated_at()
+    updated = pd.Timestamp.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "—"
+    rows = []
+    for _, g in wk.iterrows():
+        away, home = g["away_team"], g["home_team"]
+        wind_mph = None
+        if pd.notna(g["gameday"]) and g["gameday"] <= pd.Timestamp.now() + pd.Timedelta(days=15):
+            wind_mph, _ = wx.wind_for_game(g)
+        pred = pr.predict_game(g, elo, books_by_abbr.get((away, home)), espn_odds.get((away, home)),
+                               nv_injuries, wind_mph=wind_mph)
+        ms, mk = pred.get("model_spread"), pred.get("market_spread")
+        edge = pred.get("edge_pts")
+        mt, kt = pred.get("model_total"), pred.get("market_total")
+        rows.append({
+            "Away": logo_url(away),
+            "Home": logo_url(home),
+            "Game": f"{away} @ {home}",
+            "Model Line": fmt_spread(ms, home, away) if ms is not None else "—",
+            "Market Line": fmt_spread(mk, home, away) if mk is not None else "—",
+            "Edge": (f"{abs(edge):.1f} {home if edge > 0 else away}{' ★' if abs(edge) >= 1.5 else ''}"
+                     if edge is not None else "—"),
+            "Model Total": round(float(mt), 1) if mt is not None else None,
+            "Market Total": round(float(kt), 1) if kt is not None else None,
+            "Edge Total": round(float(mt - kt), 1) if mt is not None and kt is not None else None,
+            "Updated": updated,
+        })
+    return rows
+
+
+if st.sidebar.button("🔄 Refresh live data",
+                     help="Refreshes spreads, totals, injuries & news. Prop lines use the "
+                          "24h daily cache — refresh those per game on the Props tab."):
     import glob
     import os
     for f in glob.glob(os.path.join(dl.CACHE, "espn_*.json")) + glob.glob(os.path.join(dl.CACHE, "odds_api.json")):
         os.remove(f)
+    _board_rows.clear()
     st.rerun()
 
 week_games = games[(games["season"] == season) & (games["game_type"] == "REG") &
@@ -336,6 +383,11 @@ except Exception:
 st.sidebar.markdown(f"**{len(week_games)} games** loaded • injuries for {len(injuries)} teams")
 views = (["Games", "🔴 Live", "📒 Bet Journal", "📈 Track Record", "🏆 Pick'em", "📰 News", "🏅 Standings",
           "📊 Power Rankings", "❓ How It Works", "📜 Terms", "⚙️ Settings"] + (["👥 Users"] if IS_ADMIN else []))
+_qp = st.query_params.get("page")
+if _qp:  # deep-link support, e.g. ?page=journal from the bet-slip success link
+    del st.query_params["page"]
+    if _qp == "journal":
+        st.session_state["_goto"] = "📒 Bet Journal"
 if "_goto" in st.session_state:
     st.session_state["nav_radio"] = st.session_state.pop("_goto")
 page = st.sidebar.radio("View", views, key="nav_radio")
@@ -346,6 +398,14 @@ def journal_page():
     st.caption(f"Private journal of **{NAME}** — only you can see this.")
     bets = journal.settle(journal.load_bets(USER), games, USER)
     s = journal.summary(bets)
+    parlays = db.settle_parlays(games, USER)
+    settled_parlays = [p for p in parlays if p["status"] in ("won", "lost", "push")]
+    par_profit = sum(float(p["profit"] or 0) for p in settled_parlays)
+    par_staked = sum(float(p["stake"] or 0) for p in settled_parlays)
+    if par_staked:
+        s["profit"] = s.get("profit", 0) + par_profit
+        s["staked"] = s.get("staked", 0) + par_staked
+        s["roi"] = 100 * s["profit"] / s["staked"] if s["staked"] else 0
     c = st.columns(5)
     c[0].metric("Record", s.get("record", "0-0-0"))
     c[1].metric("Profit", f"{s.get('profit', 0):+.2f}u" if s.get("staked") else "-")
@@ -373,6 +433,43 @@ def journal_page():
             st.rerun()
     st.caption("CLV: positive = you got a better number than the close. Beating the close "
                ">53% of the time over 100+ bets is the strongest known signal of a real edge.")
+
+    # 🎟️ bet slip review (legs added from the 🎟️ Slip tab on any game)
+    slip = st.session_state.setdefault("slip", [])
+    if slip:
+        with st.expander(f"🎟️ Bet slip — {len(slip)} leg(s)", expanded=True):
+            for i, leg in enumerate(slip):
+                lc1, lc2 = st.columns([11, 1])
+                txt = (f"**{leg['game']}** · {leg['bet_type']} **{leg['selection']}**"
+                       + (f" {leg['line']:+.1f}" if leg.get("line") is not None else "")
+                       + f" ({leg['odds']:+d})")
+                lc1.markdown(txt)
+                if lc2.button("✕", key=f"slip_rm_{i}"):
+                    slip.pop(i)
+                    st.rerun()
+            dec = 1.0
+            for leg in slip:
+                dec *= db._american_to_dec(leg["odds"])
+            auto_am = (round((dec - 1) * 100) if dec >= 2 else round(-100 / (dec - 1))) \
+                if len(slip) > 1 else slip[0]["odds"]
+            comb = st.number_input("Combined odds (auto — edit for boosts/SGP pricing)",
+                                   value=auto_am, step=5, key=f"slip_comb_{len(slip)}")
+            sc1, sc2 = st.columns(2)
+            stake = sc1.number_input("Stake (units)", value=1.0, step=0.5, min_value=0.1,
+                                     key="slip_stake")
+            book = sc2.text_input("Book", key="slip_book")
+            b1, b2 = st.columns(2)
+            if b1.button("💾 Save parlay", disabled=len(slip) < 2, type="primary"):
+                db.save_parlay(USER, slip, float(comb), float(stake), book, "parlay")
+                st.session_state["slip"] = []
+                st.success("Parlay saved — legs grade automatically as games finish.")
+                st.rerun()
+            if b2.button("💾 Save as round robin (manual result)", disabled=len(slip) < 3,
+                         help="One ticket, total stake, you enter the result when it settles"):
+                db.save_parlay(USER, slip, None, float(stake), book, "round_robin")
+                st.session_state["slip"] = []
+                st.success("Round robin saved — enter the result below when it settles.")
+                st.rerun()
 
     with st.expander("➕ Log a bet", expanded=not len(bets)):
         gs = games[(games["season"] == season) & (games["game_type"] == "REG")].sort_values(["week", "gameday"])
@@ -405,17 +502,82 @@ def journal_page():
             st.success("Saved. CLV fills in at kickoff; grade lands after the final.")
             st.rerun()
 
-    if len(bets):
-        show = bets.copy()
+    # ---------------- Logged (pending) vs Settled ----------------
+    GR = {"won": "✅", "lost": "❌", "push": "➖", "pending": "⏳"}
+    pend_s = bets[bets["status"] == "pending"] if len(bets) else bets.iloc[0:0]
+    done_s = bets[bets["status"] != "pending"] if len(bets) else bets.iloc[0:0]
+    pend_p = [p for p in parlays if p["status"] == "pending"]
+    done_p = [p for p in parlays if p["status"] != "pending"]
+
+    def _to_win(odds, stake):
+        return f"{float(stake) * (db._american_to_dec(float(odds)) - 1):+.2f}u"
+
+    def _singles_table(df, show_profit):
+        show = df.copy()
         show["clv"] = show["clv"].apply(lambda v: f"{float(v):+.2f}" if str(v) not in ("", "nan") else "…")
         show.insert(0, "Logo", show["selection"].map(logo_url))
-        st.dataframe(show[["Logo", "date", "game", "bet_type", "selection", "line", "odds",
-                           "stake", "book", "status", "profit", "clv"]].iloc[::-1],
-                     column_config=LOGO_CFG, hide_index=True, width="stretch")
-        del_id = st.selectbox("Delete a bet (by id)", [""] + bets["id"].tolist())
+        show["To Win"] = show.apply(lambda r: _to_win(r["odds"], r["stake"]), axis=1)
+        cols = ["id", "Logo", "selection", "date", "game", "bet_type", "line", "odds",
+                "stake", "To Win", "book", "status"]
+        if show_profit:
+            cols += ["profit", "clv"]
+        st.dataframe(show[cols], column_config=LOGO_CFG, hide_index=True, width="stretch")
+
+    def _parlay_expander(pl):
+        odds_txt = f"{int(pl['combined_odds']):+d}" if pl["combined_odds"] is not None else "manual"
+        to_win = (f"To Win {_to_win(pl['combined_odds'], pl['stake'])}"
+                  if pl["combined_odds"] is not None else "To Win: manual")
+        profit_txt = (f" · {pl['profit']:+.2f}u"
+                      if pl["status"] != "pending" and pl["profit"] is not None else "")
+        with st.expander(f"{GR.get(pl['status'], '⏳')} {pl['kind'].replace('_', ' ').title()} · "
+                         f"{len(pl['legs'])} legs · {odds_txt} · {pl['stake']:g}u · "
+                         f"{to_win}{profit_txt} — {pl['created_at']}"):
+            lrows = [{
+                "Pick": logo_url(leg["selection"]),
+                "Game": leg["game"], "Type": leg["bet_type"], "Sel": leg["selection"],
+                "Line": f"{leg['line']:+.1f}" if leg.get("line") is not None else "-",
+                "Closing": f"{leg['closing_line']:+.1f}" if leg.get("closing_line") is not None else "-",
+                "Result": GR.get(leg["grade"], "⏳"),
+            } for leg in pl["legs"]]
+            st.dataframe(pd.DataFrame(lrows),
+                         column_config={"Pick": st.column_config.ImageColumn("Pick", width="small")},
+                         hide_index=True, width="stretch")
+            if pl["kind"] == "round_robin" and pl["status"] == "pending":
+                r1, r2 = st.columns(2)
+                res = r1.selectbox("Settle round robin", ["won", "lost"], key=f"rr_res_{pl['id']}")
+                payout = r2.number_input("Profit (units, excl. stake)", value=0.0, step=0.5,
+                                         key=f"rr_pay_{pl['id']}", disabled=(res != "won"))
+                if st.button("💾 Settle", key=f"rr_go_{pl['id']}"):
+                    db.settle_rr(pl["id"], res, payout)
+                    st.rerun()
+            if pl["status"] == "pending":
+                if st.button("🗑️ Delete ticket", key=f"par_del_{pl['id']}"):
+                    db.delete_parlay(pl["id"])
+                    st.rerun()
+
+    if len(pend_s) or pend_p:
+        st.subheader("📋 Logged")
+    if len(pend_s):
+        st.markdown("**Singles**")
+        _singles_table(pend_s.sort_values(["week", "date"], ascending=False), show_profit=False)
+        del_id = st.selectbox("Delete a pending bet (by id)", [""] + pend_s["id"].tolist())
         if del_id and st.button("🗑️ Delete"):
             journal.delete_bet(del_id, USER)
             st.rerun()
+    if pend_p:
+        st.markdown("**🎟️ Parlays & Round Robins**")
+        for pl in pend_p:
+            _parlay_expander(pl)
+
+    if len(done_s) or done_p:
+        st.subheader("✅ Settled")
+    if len(done_s):
+        st.markdown("**Singles**")
+        _singles_table(done_s.sort_values(["week", "date"], ascending=False), show_profit=True)
+    if done_p:
+        st.markdown("**🎟️ Parlays & Round Robins**")
+        for pl in done_p:
+            _parlay_expander(pl)
 
 if page == "📒 Bet Journal":
     if not gate("journal"):
@@ -794,7 +956,7 @@ def help_page():
     st.markdown("**Model minus market, in points**, for the team named. "
                 "**'within noise'** = the gap is under 1.5 points — ordinary disagreement, ignore it. "
                 "**'value'** = the gap is 1.5+ — the model genuinely disagrees with the books. "
-                "*Example: 'Edge 2.3 pts on CAR' = the model likes Carolina 2.3 points more than the market does.*")
+                "*Example: 'Edge 2.3 CAR' = the model likes Carolina 2.3 points more than the market does.*")
 
     st.subheader("🎚️ Model total")
     st.markdown("The model's fair **combined-points** line: the market total plus validated "
@@ -1319,7 +1481,7 @@ def predictor_tab(g, away, home):
         c2.metric("📚 Market", fmt_spread(pred["market_spread"], home, away), src)
         edge = pred["edge_pts"]
         side = home if edge > 0 else away
-        c3.metric("⚡ Edge", f"{abs(edge):.1f} pts on {side}",
+        c3.metric("⚡ Edge", f"{abs(edge):.1f} {side}",
                   "value" if abs(edge) >= 1.5 else "within noise",
                   delta_color="normal" if abs(edge) >= 1.5 else "off")
         if pred.get("model_total") is not None:
@@ -1365,8 +1527,8 @@ def predictor_tab(g, away, home):
                "EV assumes -110; Kelly shown at ¼ fraction. Historical ≠ future — size accordingly.")
 
 # ---------------- props UI ----------------
-PROJ_COLS = [("proj_pass", "Pass Yds"), ("proj_rush", "Rush Yds"),
-             ("proj_rec_yds", "Rec Yds"), ("proj_rec", "Receptions")]
+PROJ_COLS = [("proj_pass", "Pass Yds (proj)"), ("proj_rush", "Rush Yds (proj)"),
+             ("proj_rec_yds", "Rec Yds (proj)"), ("proj_rec", "Receptions (proj)")]
 
 def props_tab(g, away, home):
     if player_stats is None:
@@ -1378,6 +1540,12 @@ def props_tab(g, away, home):
     if hs is None and pd.notna(g.get("spread_line")):
         hs = -float(g["spread_line"])  # nflverse is away-perspective -> flip to home
     lines = st.session_state.get(f"props_{away}_{home}", {})
+    if not lines and api_key:  # shared daily cache: show today's lines free, no button press
+        cached, ts = dl.cached_event_props(ABBR_TO_NAME[away], ABBR_TO_NAME[home])
+        if cached:
+            lines = cached
+            st.session_state[f"props_{away}_{home}"] = cached
+            st.session_state[f"props_ts_{away}_{home}"] = ts
     for team, opp in ((away, home), (home, away)):
         st.markdown(f"{team_md(team)} (vs {team_md(opp, 20)})", unsafe_allow_html=True)
         tl = (-hs if team == away else hs) if hs is not None else None
@@ -1405,7 +1573,7 @@ def props_tab(g, away, home):
                 name += f" ↑{p['boost']:.2f}x"
             if p.get("rush_v2"):
                 name += " ⚡"
-            row = {"Player": name, "Pos": p["pos"], "G": p["games"]}
+            row = {"Player": name, "Pos": p["pos"]}
             for col, label in PROJ_COLS:
                 v = p.get(col)
                 if v is None:
@@ -1423,23 +1591,61 @@ def props_tab(g, away, home):
                     row[label] = f"{v:.0f}"
             rows.append(row)
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    st.caption("**(proj)** = NFL Edge model projection — *our* number, built from player stats. "
+               "Not a book line.")
     if lines:
-        st.caption("Format: **projection | line lean ±edge (%)** — 🟢 = edge ≥8%. "
+        ts = st.session_state.get(f"props_ts_{away}_{home}")
+        if ts:
+            st.caption(f"🕐 Lines as of {pd.Timestamp.fromtimestamp(ts).strftime('%a %-I:%M %p')} "
+                       "— prop lines auto-load Mon & Sat, cached between runs "
+                       "(spreads/totals stay live).")
+        st.caption("Format: **(proj) = our projection | book line lean ±edge (%)** — 🟢 = edge ≥8%. "
                    "Lines = median across books. ⚡ = v2 rushing model (backtest-validated: "
                    "61% lean hit 2023-25, see docs/BACKTESTS.md).")
-    elif api_key:
-        if st.button(f"📡 Load live prop lines (~4 API credits)", key=f"loadprops_{away}_{home}"):
+        if api_key and st.button("↻ Refresh prop lines", key=f"refreshprops_{away}_{home}",
+                                 help="Fetch fresh lines for THIS game now (~4 API credits — "
+                                      "admin unlimited, otherwise counts as your daily load)"):
             used = db.usage_today(USER, "prop_load")
             if not IS_ADMIN and used >= 1:
                 st.error("Daily prop-line load used (1/day per user — protects the shared free "
                          "API quota). Resets at midnight. Admin loads are unlimited.")
             else:
-                with st.spinner("Fetching props from The Odds API..."):
+                with st.spinner("Fetching fresh prop lines..."):
                     try:
-                        db.bump_usage(USER, "prop_load")
-                        fetched = dl.odds_api_event_props(api_key, ABBR_TO_NAME[away], ABBR_TO_NAME[home])
+                        dl.bust_event_props_cache(ABBR_TO_NAME[away], ABBR_TO_NAME[home])
+                        fetched = dl.odds_api_event_props(props_api_key, ABBR_TO_NAME[away], ABBR_TO_NAME[home])
+                        if not IS_ADMIN:
+                            db.bump_usage(USER, "prop_load")
                         if fetched:
                             st.session_state[f"props_{away}_{home}"] = fetched
+                            st.session_state[f"props_ts_{away}_{home}"] = pd.Timestamp.now().timestamp()
+                            st.session_state.pop(f"props_none_{away}_{home}", None)
+                            st.rerun()
+                        else:
+                            st.warning("No player props posted for this game yet — books usually hang "
+                                       "them a few days before kickoff.")
+                    except Exception as e:
+                        st.error(f"Props fetch failed: {e}")
+    elif api_key:
+        if st.button("📡 Load live prop lines", key=f"loadprops_{away}_{home}",
+                     help="Lines auto-load Mon & Sat; this fetches fresh now (~4 API credits — "
+                          "admin unlimited, otherwise counts as your daily load)."):
+            warm, _ = dl.cached_event_props(ABBR_TO_NAME[away], ABBR_TO_NAME[home])
+            real_fetch = warm is None
+            used = db.usage_today(USER, "prop_load")
+            if real_fetch and not IS_ADMIN and used >= 1:
+                st.error("Daily prop-line load used (1/day per user — protects the shared free "
+                         "API quota). Resets at midnight. Admin loads are unlimited.")
+            else:
+                with st.spinner("Fetching props from The Odds API..." if real_fetch
+                                else "Reading today's shared cache..."):
+                    try:
+                        fetched = dl.odds_api_event_props(props_api_key, ABBR_TO_NAME[away], ABBR_TO_NAME[home])
+                        if real_fetch:
+                            db.bump_usage(USER, "prop_load")
+                        if fetched:
+                            st.session_state[f"props_{away}_{home}"] = fetched
+                            st.session_state[f"props_ts_{away}_{home}"] = pd.Timestamp.now().timestamp()
                             st.rerun()
                         else:
                             st.session_state[f"props_none_{away}_{home}"] = True
@@ -1455,8 +1661,16 @@ def props_tab(g, away, home):
 # ---------------- SGP UI ----------------
 def sgp_tab(g, away, home):
     lines = st.session_state.get(f"props_{away}_{home}", {})
+    if not lines and api_key:  # shared daily cache (same as Props tab)
+        cached, ts = dl.cached_event_props(ABBR_TO_NAME[away], ABBR_TO_NAME[home])
+        if cached:
+            lines = cached
+            st.session_state[f"props_{away}_{home}"] = cached
+            st.session_state[f"props_ts_{away}_{home}"] = ts
     if not lines:
-        st.info("Load live prop lines in the 🎰 Props tab first — SGP combos are built from them.")
+        st.info("No prop lines cached for this game — lines auto-load Mon (TNF) & Sat (full slate), "
+                "or grab them now in the 🎰 Props tab (~4 API credits). "
+                "SGP combos are built from those lines.")
         return
     key = (away, home)
     pred = pr.predict_game(g, elo, books_by_abbr.get(key), espn_odds.get(key), nv_injuries)
@@ -1478,15 +1692,81 @@ def sgp_tab(g, away, home):
         rows.append({
             "Leg 1": f"{a['label']} ({a['p']*100:.0f}%)",
             "Leg 2": f"{b['label']} ({b['p']*100:.0f}%)",
-            "Correlation lift": f"×{c['lift']:.2f} (n={c['n']})",
-            "Joint prob": f"{c['p_joint']*100:.0f}%",
-            "Fair odds": f"{c['fair_american']:+d}",
-            "If independent": f"{c['naive_american']:+d}",
+            "Combo boost": f"×{c['lift']:.2f} (n={c['n']})",
+            "Both hit": f"{c['p_joint']*100:.0f}%",
+            "Fair price": f"{c['fair_american']:+d}",
+            "No-boost price": f"{c['naive_american']:+d}",
         })
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    st.caption("**How to use:** Fair odds include the empirical correlation lift (2024-25, n=544). "
+    st.caption("**How to use:** Fair price includes the measured combo boost (2024-25, n=544 real games). "
                "Only bet the SGP if your book's price is *longer* than Fair — books adjust for "
-               "correlation too, so compare before betting. Lift ≠ guaranteed edge.")
+               "correlation too, so compare before betting. Boost ≠ guaranteed edge.")
+
+# ---------------- bet slip UI ----------------
+def slip_tab(g, away, home):
+    """Add this game as a parlay leg. The slip is reviewed & saved on the Journal page."""
+    slip = st.session_state.setdefault("slip", [])
+    label = f"{away} @ {home}"
+    flash = st.session_state.get("slip_flash")
+    if flash is not None and flash != len(slip):
+        st.session_state.pop("slip_flash", None)  # slip changed since (saved/edited) -> clear
+        flash = None
+    if flash is not None:
+        st.markdown(f"✅ Leg added to your bet slip ({flash} legs) — review & save in the "
+                    f"<a href='?page=journal' target='_self'>Bet Journal</a>",
+                    unsafe_allow_html=True)
+    bt = st.selectbox("Bet type", ["spread", "ml", "total"], key=f"slip_bt_{label}")
+    if bt == "total":
+        sel = st.selectbox("Side", ["over", "under"], key=f"slip_sel_{label}")
+        default_line = float(g["total_line"]) if pd.notna(g["total_line"]) else 45.5
+    else:
+        sel = st.selectbox("Team", [away, home], key=f"slip_sel_{label}")
+        if bt == "spread" and pd.notna(g["spread_line"]):
+            base = float(g["spread_line"])
+            default_line = base if sel == away else -base
+        else:
+            default_line = 0.0
+    line = st.number_input("Line (team spread / total)", value=float(default_line), step=0.5,
+                           key=f"slip_line_{bt}_{label}", disabled=(bt == "ml"))
+    odds = st.number_input("Leg odds (American)", value=-110, step=5, key=f"slip_odds_{label}")
+    dupe = any(l["game"] == label and l["bet_type"] == bt and l["selection"] == sel for l in slip)
+    if st.button("➕ Add to bet slip", key=f"slip_add_{label}", type="primary", disabled=dupe,
+                 help=("Already on your slip — that exact leg is there. Add a different leg or game."
+                       if dupe else "Add this leg to your bet slip")):
+        slip.append({"game": label, "bet_type": bt, "selection": sel,
+                     "season": int(g["season"]), "week": int(g["week"]),
+                     "line": None if bt == "ml" else float(line), "odds": int(odds)})
+        st.session_state["slip_flash"] = len(slip)
+        st.rerun()
+    if slip:
+        st.caption("Slip: " + " · ".join(f"{l['selection']} {l['bet_type']}" for l in slip))
+
+# ---------------- week at a glance (all games: model vs market, sortable/downloadable) ----------------
+st.subheader(f"📋 Week {week} at a Glance")
+_board = _board_rows(int(season), int(week))
+if _board:
+    _bdf = pd.DataFrame(_board)
+
+    def _board_style(df):
+        """Green-highlight value cells: spread edge >=1.5 (⭐ rows) and |total edge| >=1.5."""
+        HILITE = "background-color: #7cffb2; color: #000000; font-weight: 700"
+        s = pd.DataFrame("", index=df.index, columns=df.columns)
+        s.loc[df["Edge"].astype(str).str.contains("★", regex=False), "Edge"] = HILITE
+        m = pd.to_numeric(df["Edge Total"], errors="coerce").abs() >= 1.5
+        s.loc[m.fillna(False), "Edge Total"] = HILITE
+        return s
+
+    st.dataframe(_bdf.style.apply(_board_style, axis=None), column_config={
+        "Away": st.column_config.ImageColumn("Away", width="small"),
+        "Home": st.column_config.ImageColumn("Home", width="small"),
+        "Model Total": st.column_config.NumberColumn("Model Total", format="%.1f"),
+        "Market Total": st.column_config.NumberColumn("Market Total", format="%.1f"),
+        "Edge Total": st.column_config.NumberColumn("Edge Total", format="%.1f")},
+        hide_index=True, width="stretch")
+    st.caption("**★ = spread value** — the model disagrees with the books by ≥1.5 pts; **no ★ on any game "
+               "= no spread bet this week** · 🟩 green cell = bettable edge (≥1.5 pts) · **Edge Total** "
+               "negative = model leans UNDER, positive = OVER · click a column header to sort · hover the "
+               "table's top-right corner for search & CSV download.")
 
 # ---------------- main loop (lazy: only open games render — huge rerun win) ----------------
 open_set = st.session_state.setdefault("open_games", {0})
@@ -1506,7 +1786,7 @@ def render_game(gi, g):
         for i, (tag, detail, lean) in enumerate(spots):
             cols[i % len(cols)].warning(f"**{tag}**{' → ' + lean if lean else ''}\n\n{detail}")
 
-    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (last 3)", "⚔️ H2H (5y)", "🏥 Injuries"])
+    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (last 3)", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip"])
     with tabs[0]:
         predictor_tab(g, away, home)
     with tabs[1]:
@@ -1544,6 +1824,11 @@ def render_game(gi, g):
             st.info("No meetings in the last 5 seasons.")
     with tabs[6]:
         injuries_block(away, home)
+    with tabs[7]:
+        if gate("journal"):
+            slip_tab(g, away, home)
+        else:
+            paywall("The bet slip (parlays + journal)")
 
 
 for gi, (_, g) in enumerate(week_games.iterrows()):

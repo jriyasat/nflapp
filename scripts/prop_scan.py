@@ -24,7 +24,7 @@ PROJ_LABEL = {"proj_pass": "Pass Yds", "proj_rush": "Rush Yds",
 
 
 def _get_key():
-    key = notify._env("ODDS_API_KEY") or ""
+    key = notify._env("ODDS_API_KEY_PROPS") or notify._env("ODDS_API_KEY") or ""
     try:
         key = key or open(os.path.join(dl.CACHE, "odds_api_key.txt")).read().strip()
     except Exception:

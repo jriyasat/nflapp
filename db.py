@@ -102,7 +102,16 @@ _SCHEMA = ["""CREATE TABLE IF NOT EXISTS bets (
     "CREATE UNIQUE INDEX IF NOT EXISTS uniq_pickem ON pickem(user, season, week, game)",
     """CREATE TABLE IF NOT EXISTS usage_counters (
     user TEXT, day TEXT, kind TEXT, n INT DEFAULT 0)""",
-    "CREATE UNIQUE INDEX IF NOT EXISTS uniq_usage ON usage_counters(user, day, kind)"]
+    "CREATE UNIQUE INDEX IF NOT EXISTS uniq_usage ON usage_counters(user, day, kind)",
+    """CREATE TABLE IF NOT EXISTS parlays (
+    id TEXT PRIMARY KEY, user TEXT, kind TEXT DEFAULT 'parlay',
+    combined_odds REAL, stake REAL, book TEXT,
+    status TEXT DEFAULT 'pending', profit REAL, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS parlay_legs (
+    id TEXT PRIMARY KEY, parlay_id TEXT, season INT, week INT, game TEXT, bet_type TEXT,
+    selection TEXT, line REAL, leg_odds REAL, closing_line REAL,
+    grade TEXT DEFAULT 'pending', created_at TEXT)""",
+    "CREATE INDEX IF NOT EXISTS idx_legs_parlay ON parlay_legs(parlay_id)"]
 
 
 def _connect():
@@ -368,6 +377,130 @@ def pickem_leaderboard(season):
             "win_pct": b["w"] / (b["w"] + b["l"]) if (b["w"] + b["l"]) else 0.0,
             "wins": b["w"]} for u, b in board.items()]
     return sorted(out, key=lambda r: (-r["win_pct"], -r["wins"]))
+
+
+# ---------------- parlays & round robins ----------------
+def _american_to_dec(v):
+    v = float(v)
+    return 1 + (v / 100 if v > 0 else 100 / abs(v))
+
+def save_parlay(user, legs, combined_odds, stake, book, kind="parlay"):
+    pid = str(uuid.uuid4())[:8]
+    now = time.strftime("%Y-%m-%d %H:%M")
+    with _connect() as c:
+        c.execute("INSERT INTO parlays (id, user, kind, combined_odds, stake, book, status, created_at)"
+                  " VALUES (?,?,?,?,?,?,'pending',?)",
+                  (pid, user, kind, combined_odds, stake, book, now))
+        for leg in legs:
+            c.execute("INSERT INTO parlay_legs"
+                      " (id, parlay_id, season, week, game, bet_type, selection, line, leg_odds, grade, created_at)"
+                      " VALUES (?,?,?,?,?,?,?,?,?,'pending',?)",
+                      (str(uuid.uuid4())[:8], pid, leg.get("season"), leg.get("week"),
+                       leg["game"], leg["bet_type"], leg["selection"], leg.get("line"),
+                       leg.get("odds"), now))
+    return pid
+
+def load_parlays(user):
+    with _connect() as c:
+        heads = c.execute("SELECT id, kind, combined_odds, stake, book, status, profit, created_at"
+                          " FROM parlays WHERE user=? ORDER BY created_at DESC", (user,)).fetchall()
+        out = []
+        for pid, kind, co, stake, book, status, profit, ts in heads:
+            legs = c.execute("SELECT game, bet_type, selection, line, leg_odds, closing_line, grade,"
+                             " season, week FROM parlay_legs WHERE parlay_id=?", (pid,)).fetchall()
+            out.append({"id": pid, "kind": kind, "combined_odds": co, "stake": stake, "book": book,
+                        "status": status, "profit": profit, "created_at": ts,
+                        "legs": [{"game": g, "bet_type": bt, "selection": s, "line": ln,
+                                  "odds": lo, "closing_line": cl, "grade": gr,
+                                  "season": se, "week": wk}
+                                 for g, bt, s, ln, lo, cl, gr, se, wk in legs]})
+        return out
+
+def _grade_leg(games, leg):
+    """Grade one leg against game result; also capture closing line (CLV per leg).
+    Returns (grade, closing_line) or (None, None) if no result yet."""
+    try:
+        away, home = leg["game"].split(" @ ")
+        m = games[(games["away_team"] == away) & (games["home_team"] == home)
+                  & games["result"].notna()]
+        if leg.get("season") is not None and leg.get("week") is not None:
+            m = m[(m["season"] == int(leg["season"])) & (m["week"] == int(leg["week"]))]
+        if m.empty:
+            return None, None
+        g = m.iloc[-1]  # latest meeting as fallback for legacy legs without season/week
+        bt, sel, line = leg["bet_type"], leg["selection"], leg["line"]
+        if bt == "total":
+            if pd.isna(g["total_line"]):
+                return None, None
+            tot = float(g["total"])
+            diff = (tot - line) if sel == "over" else (line - tot)
+            closing = float(g["total_line"])
+        elif bt == "ml":
+            margin = float(g["result"]) if sel == home else -float(g["result"])
+            diff = margin
+            closing = None  # ml legs: no spread CLV
+        else:  # spread, team-perspective line
+            if pd.isna(g["spread_line"]):
+                return None, None
+            margin = float(g["result"]) if sel == home else -float(g["result"])
+            diff = margin + float(line or 0)
+            closing = float(g["spread_line"]) if sel == away else -float(g["spread_line"])
+        grade = "won" if diff > 0 else ("lost" if diff < 0 else "push")
+        return grade, closing
+    except Exception:
+        return None, None
+
+def settle_parlays(games, user):
+    """Grade pending legs; settle tickets when all legs decided.
+    Push legs drop out; ticket reprices from remaining legs (standard house rule)."""
+    for pl in load_parlays(user):
+        if pl["status"] != "pending":
+            continue
+        if pl["kind"] == "round_robin":
+            continue  # RR settles manually via settle_rr()
+        with _connect() as c:
+            for leg in pl["legs"]:
+                if leg["grade"] != "pending":
+                    continue
+                grade, closing = _grade_leg(games, leg)
+                if grade:
+                    c.execute("UPDATE parlay_legs SET grade=?, closing_line=?"
+                              " WHERE parlay_id=? AND game=? AND bet_type=? AND selection=?",
+                              (grade, closing, pl["id"], leg["game"], leg["bet_type"], leg["selection"]))
+                    leg["grade"], leg["closing_line"] = grade, closing
+        grades = [l["grade"] for l in pl["legs"]]
+        if any(gr == "pending" for gr in grades):
+            continue
+        active = [l for l in pl["legs"] if l["grade"] != "push"]
+        if any(l["grade"] == "lost" for l in pl["legs"]):
+            status, profit = "lost", -float(pl["stake"])
+        elif not active:
+            status, profit = "push", 0.0
+        else:
+            status = "won"
+            if len(active) == len(pl["legs"]) and pl["combined_odds"] is not None:
+                dec = _american_to_dec(pl["combined_odds"])
+            else:  # pushes happened (or no manual price): reprice from leg odds
+                dec = 1.0
+                for l in active:
+                    dec *= _american_to_dec(l["leg_odds"] or -110)
+            profit = float(pl["stake"]) * (dec - 1)
+        with _connect() as c:
+            c.execute("UPDATE parlays SET status=?, profit=? WHERE id=?", (status, profit, pl["id"]))
+    return load_parlays(user)
+
+def settle_rr(parlay_id, result, payout):
+    """Simplified round robin: one manual result for the whole ticket."""
+    with _connect() as c:
+        if result == "won":
+            c.execute("UPDATE parlays SET status='won', profit=? WHERE id=?", (float(payout), parlay_id))
+        else:
+            c.execute("UPDATE parlays SET status='lost', profit=-stake WHERE id=?", (parlay_id,))
+
+def delete_parlay(parlay_id):
+    with _connect() as c:
+        c.execute("DELETE FROM parlay_legs WHERE parlay_id=?", (parlay_id,))
+        c.execute("DELETE FROM parlays WHERE id=?", (parlay_id,))
 
 
 def admin_count():

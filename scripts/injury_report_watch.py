@@ -25,7 +25,7 @@ def main():
     games = dl.load_games()
     season, week = dl.current_season_week(games)
     try:
-        nv, _ = dl.nflverse_injuries(season)
+        nv, _ = dl.nflverse_injuries(season, max_age_h=0.5)  # hot path: fresh within one tick
     except Exception:
         return
     cur = {}

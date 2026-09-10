@@ -36,6 +36,7 @@ NEWS_INJURY_KW = ("injur", "placed on ir", "injured reserve", "activated", "waiv
 GAMES_CACHE_H = 12
 ESPN_CACHE_MIN = 10
 ODDS_CACHE_MIN = 45  # free tier is 500 req/month -- be stingy
+PROP_CACHE_MIN = 6 * 24 * 60  # player props: 6-day shared disk cache, warmed Mon+Sat by prop_warm.py cron (spread/total lines stay at 45 min)
 
 
 def _fresh(path, max_age_sec):
@@ -294,22 +295,16 @@ ODDS_EVENT_ODDS = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/e
 PROP_MARKETS = "player_pass_yds,player_rush_yds,player_reception_yds,player_receptions"
 
 
-def odds_api_event_props(api_key, away_name, home_name):
-    """Player prop lines for ONE game (event-level; costs ~4 credits). Cached 45 min.
-    Returns {market: {player_name: {"point": x, "over_price": p, "under_price": p, "book": b}}}"""
-    ev = _get_json(ODDS_EVENTS, "odds_events.json", ODDS_CACHE_MIN,
-                   params={"apiKey": api_key})
-    event_id = None
+def _event_id_for(away_name, home_name, ev):
     for g in ev:
         if g.get("home_team") == home_name and g.get("away_team") == away_name:
-            event_id = g["id"]
-            break
-    if not event_id:
-        return {}
-    safe = f"props_{event_id}.json"
-    data = _get_json(ODDS_EVENT_ODDS % event_id, safe, ODDS_CACHE_MIN, params={
-        "apiKey": api_key, "regions": "us", "markets": PROP_MARKETS,
-        "oddsFormat": "american"})
+            return g["id"]
+    return None
+
+
+def _parse_props(data):
+    """Raw event-odds payload -> {market: {player: {point, prices, books}}}.
+    Line = median across books; prices = best available."""
     raw = {}
     for bk in data.get("bookmakers", []):
         for m in bk.get("markets", []):
@@ -339,6 +334,61 @@ def odds_api_event_props(api_key, away_name, home_name):
     return out
 
 
+def _props_cache_path(event_id):
+    return os.path.join(CACHE, f"props_{event_id}.json")
+
+
+def odds_api_event_props(api_key, away_name, home_name):
+    """Player prop lines for ONE game (event-level; ~4 credits on a real fetch).
+    Cached 24h on disk and shared by all users — the first load of the day is the
+    only one that spends quota. Returns {} when no props are posted yet."""
+    ev = _get_json(ODDS_EVENTS, "odds_events.json", PROP_CACHE_MIN,
+                   params={"apiKey": api_key})
+    event_id = _event_id_for(away_name, home_name, ev)
+    if not event_id:
+        return {}
+    data = _get_json(ODDS_EVENT_ODDS % event_id, f"props_{event_id}.json", PROP_CACHE_MIN,
+                     params={"apiKey": api_key, "regions": "us", "markets": PROP_MARKETS,
+                             "oddsFormat": "american"})
+    return _parse_props(data)
+
+
+def cached_event_props(away_name, home_name):
+    """Disk-cached prop lines only — no network, no credits. Returns
+    (props_dict, cache_mtime_epoch) when a fresh (<24h) cache exists, else (None, None).
+    props_dict may be {} when books haven't posted props for the game yet."""
+    try:
+        with open(os.path.join(CACHE, "odds_events.json")) as f:
+            ev = json.load(f)
+        event_id = _event_id_for(away_name, home_name, ev)
+        if not event_id:
+            return None, None
+        path = _props_cache_path(event_id)
+        if not _fresh(path, PROP_CACHE_MIN * 60):
+            return None, None
+        with open(path) as f:
+            return _parse_props(json.load(f)), os.path.getmtime(path)
+    except Exception:
+        return None, None
+
+
+def bust_event_props_cache(away_name, home_name):
+    """Delete a game's cached prop lines — the next load fetches fresh from the API.
+    Returns True when a cache file was actually removed."""
+    try:
+        with open(os.path.join(CACHE, "odds_events.json")) as f:
+            ev = json.load(f)
+        event_id = _event_id_for(away_name, home_name, ev)
+        if event_id:
+            path = _props_cache_path(event_id)
+            if os.path.exists(path):
+                os.remove(path)
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def np_median(xs):
     xs = sorted(xs)
     n = len(xs)
@@ -352,16 +402,18 @@ _PRACTICE_SHORT = {"Did Not Participate In Practice": "DNP",
                    "Full Participation in Practice": "FP"}
 
 
-def nflverse_injuries(season=None):
+def nflverse_injuries(season=None, max_age_h=GAMES_CACHE_H):
     """Official NFL injury report via nflverse. Returns {team: [rows]}, plus a label
-    like '2025 W18 (REG)'. Falls back to prior season file if current not published."""
+    like '2025 W18 (REG)'. Falls back to prior season file if current not published.
+    max_age_h controls disk-cache freshness — the Injury Report Watch passes 0.5h
+    so report drops surface within one 30-min tick instead of up to 12h."""
     games = load_games()
     if season is None:
         season = int(games.loc[games["result"].isna(), "season"].max())
     df = None
     for s in (season, season - 1):
         path = os.path.join(CACHE, f"nflverse_injuries_{s}.csv")
-        if not _fresh(path, GAMES_CACHE_H * 3600):
+        if not _fresh(path, max_age_h * 3600):
             try:
                 r = requests.get(NFLVERSE_INJ % s, timeout=60)
                 if r.status_code == 200 and len(r.content) > 100:
@@ -404,7 +456,7 @@ TEAM_NAME_TO_ABBR = {
     "Denver Broncos": "DEN", "Detroit Lions": "DET", "Green Bay Packers": "GB",
     "Houston Texans": "HOU", "Indianapolis Colts": "IND", "Jacksonville Jaguars": "JAX",
     "Kansas City Chiefs": "KC", "Las Vegas Raiders": "LV", "Los Angeles Chargers": "LAC",
-    "Los Angeles Rams": "LA", "Miami Dolphins": "MIA", "Minnesota Vikings": "MIN",
+    "Los Angeles Rams": "LAR", "Miami Dolphins": "MIA", "Minnesota Vikings": "MIN",
     "New England Patriots": "NE", "New Orleans Saints": "NO", "New York Giants": "NYG",
     "New York Jets": "NYJ", "Philadelphia Eagles": "PHI", "Pittsburgh Steelers": "PIT",
     "San Francisco 49ers": "SF", "Seattle Seahawks": "SEA", "Tampa Bay Buccaneers": "TB",
