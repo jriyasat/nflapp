@@ -9,6 +9,7 @@ Cloud deploy: _connect() is the single seam to swap to a hosted SQLite
 Migrates legacy data/bets.csv + data/predictions.csv on first run.
 """
 
+import json
 import os
 import sqlite3
 import time
@@ -140,9 +141,76 @@ def _ensure_user_cols(conn):
     for col, ddl in (("email_enabled", "INTEGER DEFAULT 0"),
                      ("telegram_enabled", "INTEGER DEFAULT 0"),
                      ("telegram_chat_id", "TEXT"),
+                     ("alert_prefs", "TEXT"),
                      ("bankroll", "REAL"), ("unit", "REAL")):
         if col not in cols:
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+
+
+# ---------------- per-user alert preferences (matrix: alert x channel) ----------------
+ALERT_TYPES = {"brief": "☀️ Morning Brief (8 AM)",
+               "radar": "🚨 Value Radar (line moves)",
+               "inactives": "🚫 Gameday Inactives",
+               "injury": "🏥 Injury Report Watch",
+               "propscan": "🎯 Prop Scan (Thursday)"}
+ALERT_CHANNELS = ("off", "telegram", "email", "both")
+
+
+def _default_alert_prefs(email_enabled, telegram_enabled):
+    """Mirror pre-matrix behavior: brief + inactives on whichever channels were
+    enabled; everything else opt-in (off)."""
+    ch = ("both" if email_enabled and telegram_enabled
+          else "email" if email_enabled
+          else "telegram" if telegram_enabled else "off")
+    return {"brief": ch, "radar": "off", "inactives": ch, "injury": "off", "propscan": "off"}
+
+
+def get_alert_prefs(username):
+    with _connect() as c:
+        r = c.execute("SELECT alert_prefs, email_enabled, telegram_enabled"
+                      " FROM users WHERE username=?", (username,)).fetchone()
+    if not r:
+        return _default_alert_prefs(0, 0)
+    prefs = _default_alert_prefs(r[1] or 0, r[2] or 0)
+    if r[0]:
+        try:
+            prefs.update({k: v for k, v in json.loads(r[0]).items()
+                          if k in ALERT_TYPES and v in ALERT_CHANNELS})
+        except Exception:
+            pass
+    return prefs
+
+
+def set_alert_pref(username, alert, channel):
+    if alert not in ALERT_TYPES or channel not in ALERT_CHANNELS:
+        return
+    prefs = get_alert_prefs(username)
+    prefs[alert] = channel
+    with _connect() as c:
+        c.execute("UPDATE users SET alert_prefs=? WHERE username=?",
+                  (json.dumps(prefs), username))
+
+
+def users_for_alert(alert, channel):
+    """Users whose pref for `alert` includes `channel` ('telegram'/'email';
+    'both' counts as each). Returns full user dicts for the fan-out."""
+    out = []
+    with _connect() as c:
+        rows = c.execute(
+            "SELECT username, name, email, email_enabled, telegram_enabled,"
+            " telegram_chat_id, alert_prefs FROM users").fetchall()
+    for uname, name, email, ee, te, chat_id, raw in rows:
+        prefs = _default_alert_prefs(ee or 0, te or 0)
+        if raw:
+            try:
+                prefs.update(json.loads(raw))
+            except Exception:
+                pass
+        if prefs.get(alert) in (channel, "both"):
+            out.append({"username": uname, "name": name, "email": email,
+                        "telegram_chat_id": chat_id,
+                        "email_enabled": ee, "telegram_enabled": te})
+    return out
 
 
 def migrate_legacy():

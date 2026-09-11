@@ -1,8 +1,14 @@
-"""Value radar: every 2h, scan this week's remaining games for spread edges the
+"""Value radar v2: every 30 min, scan this week's remaining games for edges the
 model would actually bet (|edge| >= VALUE_RADAR_MIN, default 2.0 — the Track
-Record threshold). Uses FREE ESPN odds (+ nflverse line fallback) — zero Odds
-API credits. Fires once per game per week (deduped weekly snapshot).
-Silent otherwise (watchdog pattern: empty stdout = nothing sent).
+Record threshold), on BOTH spreads and totals.
+
+Re-alerts on real line movement: after a game's first alert, it can fire again
+only when that market's line moved >= MOVE_MIN pts with the edge still live —
+the message shows the actual move ("DET -7 -> -5.5").
+
+Zero API spend by design: lines come from the shared SGO disk cache (only when
+already fresh — never triggers a fetch), then ESPN (free), then nflverse.
+Deduped per week via snapshot. Silent otherwise (watchdog pattern).
 Run via nfl_value_radar.sh (venv python)."""
 
 import json
@@ -19,7 +25,15 @@ import data as dl
 import predictor as pr
 
 EDGE_MIN = float(os.environ.get("VALUE_RADAR_MIN", "2.0"))
+MOVE_MIN = float(os.environ.get("VALUE_RADAR_MOVE", "1.0"))
 SNAP = os.path.join(dl.CACHE, "snap_value_radar.json")
+
+
+def _fmt_line(sp_home, away, home):
+    """home-perspective spread -> 'DET -5.5' style."""
+    if sp_home is None:
+        return "?"
+    return f"{home} {sp_home:.1f}" if sp_home < 0 else f"{away} {-sp_home:.1f}"
 
 
 def main():
@@ -34,7 +48,12 @@ def main():
     try:
         espn_odds = dl.espn_week_odds(season, week)
     except Exception:
-        espn_odds = {}  # ESPN circuit open — nflverse line fallback still works
+        espn_odds = {}  # ESPN circuit open — SGO/nflverse fallbacks still work
+    sgo_abbr = {}
+    for (an, hn), books in (dl.cached_sgo_lines() or {}).items():
+        k = (dl.TEAM_NAME_TO_ABBR.get(an), dl.TEAM_NAME_TO_ABBR.get(hn))
+        if all(k):
+            sgo_abbr[k] = books
     try:
         nv, _ = dl.nflverse_injuries(max_age_h=2)
     except Exception:
@@ -42,7 +61,7 @@ def main():
     elo = pr.Elo(games)
     snap = json.load(open(SNAP)) if os.path.exists(SNAP) else {}
     wk_key = f"{season}-{week}"
-    alerted = snap.get("alerts", {}) if snap.get("week") == wk_key else {}
+    state = snap.get("games", {}) if snap.get("week") == wk_key else {}
 
     hits = []
     for _, g in wk.iterrows():
@@ -54,27 +73,62 @@ def main():
                 wind, _ = wx.wind_for_game(g)
         except Exception:
             pass
-        pred = pr.predict_game(g, elo, None, espn_odds.get((away, home)), nv, wind_mph=wind)
+        pred = pr.predict_game(g, elo, sgo_abbr.get((away, home)),
+                               espn_odds.get((away, home)), nv, wind_mph=wind)
         edge = pred.get("edge_pts")
         if edge is None and pred.get("p_market") is not None:
-            # ESPN ML-only path: predictor sets no edge_pts without a posted spread —
-            # derive the market spread exactly like predictor does (de-vig -> Elo map)
+            # ESPN ML-only path: derive the market spread exactly like predictor does
             pc = min(max(pred["p_market"], 0.02), 0.98)
             edge = (elo._a * math.log(pc / (1 - pc)) + elo._b) - pred["model_spread"]
+        mk, kt = pred.get("market_spread"), pred.get("market_total")
+        mt = pred.get("model_total")
         label = f"{away} @ {home}"
-        if edge is None or abs(edge) < EDGE_MIN or label in alerted:
-            continue
-        side = home if edge > 0 else away
-        hits.append((abs(edge), label,
-                     f"• {label}: model likes *{side}* by {abs(edge):.1f} pts vs market"))
-        alerted[label] = round(float(edge), 1)
+        st = dict(state.get(label, {}))
 
-    json.dump({"week": wk_key, "alerts": alerted}, open(SNAP, "w"))
+        # ---- spread ----
+        if edge is not None and abs(edge) >= EDGE_MIN:
+            first = "sp_edge" not in st
+            moved = (st.get("sp_line") is not None and mk is not None
+                     and abs(mk - st["sp_line"]) >= MOVE_MIN)
+            if first or moved:
+                side = home if edge > 0 else away
+                if first:
+                    msg = (f"• {label}: model likes *{side}* by {abs(edge):.1f} pts "
+                           f"(line {_fmt_line(mk, away, home)})")
+                else:
+                    msg = (f"• 📉 {label}: {_fmt_line(st['sp_line'], away, home)} → "
+                           f"*{_fmt_line(mk, away, home)}* — model likes *{side}* by {abs(edge):.1f} pts")
+                hits.append((abs(edge), label, msg))
+                st["sp_edge"] = round(float(edge), 1)
+        if mk is not None:
+            st["sp_line"] = round(float(mk), 2)
+
+        # ---- total ----
+        t_edge = (float(mt) - float(kt)) if (mt is not None and kt is not None) else None
+        if t_edge is not None and abs(t_edge) >= EDGE_MIN:
+            first = "tot_edge" not in st
+            moved = (st.get("tot_line") is not None and kt is not None
+                     and abs(kt - st["tot_line"]) >= MOVE_MIN)
+            if first or moved:
+                lean = "OVER" if t_edge > 0 else "UNDER"
+                if first:
+                    msg = f"• {label}: model total leans *{lean}* by {abs(t_edge):.1f} pts (line {kt:.1f})"
+                else:
+                    msg = (f"• 📉 {label}: total {st['tot_line']:.1f} → *{kt:.1f}* — "
+                           f"model leans *{lean}* by {abs(t_edge):.1f} pts")
+                hits.append((abs(t_edge), label, msg))
+                st["tot_edge"] = round(float(t_edge), 1)
+        if kt is not None:
+            st["tot_line"] = round(float(kt), 2)
+
+        state[label] = st
+
+    json.dump({"week": wk_key, "games": state}, open(SNAP, "w"))
     if not hits:
         return
     hits.sort(reverse=True)
     print(f"🚨 *VALUE RADAR — Week {week}*\n" + "\n".join(m for _, _, m in hits)
-          + "\n\n_Free scan (ESPN/nflverse lines) — confirm in the app before betting._")
+          + "\n\n_Lines from SGO/ESPN cache — confirm in the app before betting._")
 
 
 if __name__ == "__main__":

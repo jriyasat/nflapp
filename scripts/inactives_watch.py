@@ -111,6 +111,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    sys.stdout.flush()
-    os._exit(0)
+    from _common import run
+    run(main)

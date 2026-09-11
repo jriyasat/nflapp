@@ -293,15 +293,18 @@ except Exception:
     props_api_key = api_key
 def _lines_updated_at():
     import glob as _g
-    fs = _g.glob(os.path.join(dl.CACHE, "odds_api.json")) + _g.glob(os.path.join(dl.CACHE, "espn_*.json"))
+    fs = _g.glob(os.path.join(dl.CACHE, "sgo_odds.json")) + _g.glob(os.path.join(dl.CACHE, "odds_api.json")) \
+        + [f for f in _g.glob(os.path.join(dl.CACHE, "espn_*.json"))
+           if not os.path.basename(f).startswith(("espn_live", "espn_sb", "espn_sum"))]
     return max((os.path.getmtime(f) for f in fs), default=None)
 
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _board_rows(season, week):
-    """Week-at-a-glance board: model vs market for every game (15-min cache)."""
+    """Week-at-a-glance board: model vs market for every UPCOMING game (15-min cache).
+    Completed games move to the Completed section (score + model receipts)."""
     wk = games[(games["season"] == season) & (games["game_type"] == "REG") &
-               (games["week"] == week)].sort_values(["gameday", "gametime"])
+               (games["week"] == week) & (games["result"].isna())].sort_values(["gameday", "gametime"])
     ts = _lines_updated_at()
     updated = pd.Timestamp.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "—"
     rows = []
@@ -331,12 +334,65 @@ def _board_rows(season, week):
     return rows
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _completed_rows(season, week):
+    """Completed games: final score + model receipts, graded at the nflverse
+    CLOSING line (same standard as Track Record). Badges only where the model
+    had a bettable lean (>=1.5 pts), matching the board's star/green rules."""
+    wk = games[(games["season"] == season) & (games["game_type"] == "REG") &
+               (games["week"] == week) & (games["result"].notna())].sort_values(["gameday", "gametime"])
+    # honest receipts: each game's model line comes from an Elo that has NOT
+    # absorbed that game's own result (one rebuild per distinct gameday)
+    gd = pd.to_datetime(games["gameday"], errors="coerce")
+    elo_by_day = {d: pr.Elo(games[gd < d]) for d in sorted(pd.to_datetime(wk["gameday"]).unique())}
+    rows = []
+    for _, g in wk.iterrows():
+        away, home = g["away_team"], g["home_team"]
+        pred = pr.predict_game(g, elo_by_day.get(pd.Timestamp(g["gameday"]), elo), None, None, nv_injuries)
+        ms = pred.get("model_spread")          # home-perspective (neg = home)
+        mt = pred.get("model_total")
+        mk_home = -float(g["spread_line"]) if pd.notna(g["spread_line"]) else None
+        kt = float(g["total_line"]) if pd.notna(g["total_line"]) else None
+        margin = float(g["result"])            # home margin
+        actual_total = float(g["total"]) if pd.notna(g["total"]) else None
+        # spread receipt
+        sp_pick, sp_badge = "—", ""
+        if ms is not None and mk_home is not None:
+            edge_h = mk_home - ms              # >0: model likes home vs market
+            if abs(edge_h) >= 1.5:
+                pick_home = edge_h > 0
+                cover = margin + mk_home       # >0 home covers, <0 away covers
+                hit = (cover > 0) if pick_home else (cover < 0)
+                sp_badge = "➖ push" if cover == 0 else ("✅" if hit else "❌")
+                sp_pick = f"{home if pick_home else away} {sp_badge}"
+        # total receipt
+        tot_lean = "—"
+        if mt is not None and kt is not None and actual_total is not None:
+            diff = float(mt) - kt
+            if abs(diff) >= 1.5:
+                over = diff > 0
+                hit = (actual_total > kt) if over else (actual_total < kt)
+                badge = "➖ push" if actual_total == kt else ("✅" if hit else "❌")
+                tot_lean = f"{'OVER' if over else 'UNDER'} {kt:.1f} {badge}"
+        rows.append({
+            "Away": logo_url(away),
+            "Home": logo_url(home),
+            "Final": f"{away} {int(g['away_score'])} @ {home} {int(g['home_score'])}",
+            "Model Line": fmt_spread(ms, home, away) if ms is not None else "—",
+            "Closing Line": fmt_spread(mk_home, home, away) if mk_home is not None else "—",
+            "Spread pick": sp_pick,
+            "Total lean": tot_lean,
+        })
+    return rows
+
+
 if st.sidebar.button("🔄 Refresh live data",
                      help="Refreshes spreads, totals, injuries & news. Prop lines use the "
                           "24h daily cache — refresh those per game on the Props tab."):
     import glob
     import os
-    for f in glob.glob(os.path.join(dl.CACHE, "espn_*.json")) + glob.glob(os.path.join(dl.CACHE, "odds_api.json")):
+    for f in glob.glob(os.path.join(dl.CACHE, "espn_*.json")) + glob.glob(os.path.join(dl.CACHE, "odds_api.json")) \
+            + glob.glob(os.path.join(dl.CACHE, "sgo_odds.json")):
         os.remove(f)
     _board_rows.clear()
     st.rerun()
@@ -696,8 +752,8 @@ def pickem_page():
     else:
         GRADE_ICON = {"won": "✅ won", "lost": "❌ lost", "push": "➖ push", "pending": "⏳ pending"}
         show = pd.DataFrame({
-            "Pick": model_picks["pick"].map(logo_url),  # logo IS the pick
             "Game": model_picks["game"],
+            "Pick": model_picks["pick"].map(logo_url),  # logo IS the pick
             "Line": model_picks["line"].apply(lambda v: f"{float(v):+g}" if pd.notna(v) else "-"),
             "Result": model_picks["grade"].map(lambda g: GRADE_ICON.get(g, g)),
         })
@@ -1368,6 +1424,7 @@ def _line_history(game_label):
 
 
 def lines_block(g, away, home, espn_o, books):
+    _pre_game_tag(away, home)
     # model context — shared by the chart overlay and the pinned table row
     wind_mph = None
     if pd.notna(g["gameday"]) and g["gameday"] <= pd.Timestamp.now() + pd.Timedelta(days=15):
@@ -1478,6 +1535,7 @@ def fmt_spread(sp, home, away):
     return f"{home} {sp:.1f}" if sp < 0 else f"{away} {-sp:.1f}"
 
 def predictor_tab(g, away, home):
+    _pre_game_tag(away, home)
     key = (away, home)
     wind_mph = None
     if pd.notna(g["gameday"]) and g["gameday"] <= pd.Timestamp.now() + pd.Timedelta(days=15):
@@ -1792,8 +1850,8 @@ def slip_tab(g, away, home):
     if slip:
         st.caption("Slip: " + " · ".join(f"{l['selection']} {l['bet_type']}" for l in slip))
 
-# ---------------- week at a glance (all games: model vs market, sortable/downloadable) ----------------
-st.subheader(f"📋 Week {week} at a Glance")
+# ---------------- upcoming games board (model vs market, sortable/downloadable) ----------------
+st.subheader(f"📋 Week {week} Upcoming Games")
 _board = _board_rows(int(season), int(week))
 if _board:
     _bdf = pd.DataFrame(_board)
@@ -1821,6 +1879,37 @@ if _board:
 
 # ---------------- main loop (lazy: only open games render — huge rerun win) ----------------
 open_set = st.session_state.setdefault("open_games", {0})
+
+
+def _live_score_map():
+    """{(away, home): espn live event} — 60s disk cache, empty dict on failure."""
+    try:
+        return {(ev["away"], ev["home"]): ev for ev in dl.espn_live_scores(season, week)}
+    except Exception:
+        return {}
+
+
+@st.fragment(run_every=60)
+def _live_strip(away, home):
+    """Auto-updating live-game strip above an open game. Loud by design."""
+    ev = _live_score_map().get((away, home))
+    if not ev or ev["state"] == "pre":
+        return
+    if ev["state"] == "post":
+        st.success(f"🏁 **Final: {ev['away']} {ev['a_score']} @ {ev['home']} {ev['h_score']}** "
+                   f"— this game moves to 🏁 Completed on the next data refresh.")
+        return
+    st.error(f"🔒 **LOCKED AT KICKOFF** — the lines, edges & model numbers below are the "
+             f"**pre-game** numbers, frozen at kickoff. They do NOT move during the game.\n\n"
+             f"🔴 **LIVE: {ev['away']} {ev['a_score']} @ {ev['home']} {ev['h_score']}**"
+             f"  —  {ev['detail']}")
+
+
+def _pre_game_tag(away, home):
+    """Small lock note on Predictor/Lines tabs while the game is live."""
+    ev = _live_score_map().get((away, home))
+    if ev and ev["state"] == "in":
+        st.caption("🔒 Pre-game numbers — locked at kickoff. Live score in the banner above.")
 
 
 @st.fragment
@@ -1883,19 +1972,43 @@ def render_game(gi, g):
             paywall("The bet slip (parlays + journal)")
 
 
-for gi, (_, g) in enumerate(week_games.iterrows()):
+upcoming_games = week_games[week_games["result"].isna()]
+completed_games = week_games[week_games["result"].notna()]
+_live_scores = _live_score_map()
+
+for gi, (_, g) in enumerate(upcoming_games.iterrows()):
     away, home = g["away_team"], g["home_team"]
     day = g["gameday"].strftime("%a %b %d") if pd.notna(g["gameday"]) else ""
     label = f"{away} @ {home}  •  {day} {g.get('gametime', '')} ET"
     is_open = gi in open_set
+    _ev = _live_scores.get((away, home))
+    _live_txt = (f"  •  🔴 **LIVE {_ev['away']} {_ev['a_score']} @ "
+                 f"{_ev['home']} {_ev['h_score']}** ({_ev['detail']})"
+                 if _ev and _ev["state"] == "in" else "")
     hc1, hc2 = st.columns([11, 1])
     hc1.markdown(f"{matchup_md(away, home, 28)}"
-                 f"  •  {day} {g.get('gametime', '')} ET", unsafe_allow_html=True)
+                 f"  •  {day} {g.get('gametime', '')} ET{_live_txt}", unsafe_allow_html=True)
     if hc2.button("▾" if is_open else "▸", key=f"tog_{gi}", help="open/close game"):
         st.session_state["open_games"] = open_set ^ {gi}
         st.rerun()
     if is_open:
         with st.container(border=True):
+            _live_strip(away, home)
             render_game(gi, g)
+
+# ---------------- completed games (auto-moved here as finals post) ----------------
+if not completed_games.empty:
+    with st.expander(f"🏁 Completed — Week {week} ({len(completed_games)} final)",
+                     expanded=False):
+        _cr = _completed_rows(int(season), int(week))
+        if _cr:
+            st.dataframe(pd.DataFrame(_cr), column_config={
+                "Away": st.column_config.ImageColumn("Away", width="small"),
+                "Home": st.column_config.ImageColumn("Home", width="small")},
+                hide_index=True, width="stretch")
+            st.caption("Badges appear only where the model had a bettable lean (≥1.5 pts vs the "
+                       "closing line — same bar as the ★/🟩 on the board above). Graded at the "
+                       "nflverse **closing** line, same standard as 📈 Track Record. **Model line "
+                       "= pre-game** (Elo rebuilt without that game's own result — no hindsight).")
 
 st.caption("Historical lines: nflverse closing lines. Live: ESPN + The Odds API. For entertainment/research — bet responsibly.")

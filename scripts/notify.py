@@ -68,7 +68,7 @@ def send_email(to_addr, subject, text):
     msg.attach(MIMEText(
         f"<html><body style=\"font-family:Arial,sans-serif;font-size:14px\">"
         f"{_md_to_html(text)}</body></html>", "html"))
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465,
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30,
                           context=ssl.create_default_context()) as s:
         s.login(user, pw)
         s.sendmail(user, to_addr, msg.as_string())

@@ -62,6 +62,30 @@ def load_games():
     if _MEMO.get("games_mt") == mt:
         return _MEMO["games"]
     df = pd.read_csv(path, low_memory=False)
+    # auto-refresh stale results: nflverse posts ~1h after finals. If any game is
+    # >4h past kickoff with no result and this cache is >1h old, refetch once so
+    # finished games move to Completed without waiting out the 12h TTL.
+    if time.time() - os.path.getmtime(path) > 3600:
+        try:
+            _gd = pd.to_datetime(df["gameday"], errors="coerce")
+            _gt = df["gametime"].fillna("0:0").astype(str).str.split(":", expand=True)
+            _ko = _gd + pd.to_timedelta(pd.to_numeric(_gt[0], errors="coerce").fillna(0), unit="h") \
+                      + pd.to_timedelta(pd.to_numeric(_gt[1], errors="coerce").fillna(0), unit="m")
+            _overdue = bool((df["result"].isna() & _gd.notna()
+                             & (_ko < pd.Timestamp.now() - pd.Timedelta(hours=4))).any())
+        except Exception:
+            _overdue = False
+        if _overdue:
+            try:
+                r = requests.get(GAMES_URL, timeout=60)
+                r.raise_for_status()
+                tmp = path + ".tmp"
+                with open(tmp, "wb") as f:
+                    f.write(r.content)
+                os.replace(tmp, path)
+                df = pd.read_csv(path, low_memory=False)
+            except Exception:
+                pass  # serve what we have — try again next hour
     # nflverse calls the Rams "LA"; the rest of the app (divisions, logos, ESPN) uses "LAR".
     # Without this the Rams silently miss standings, rankings, injury adj, and logos.
     df[["home_team", "away_team"]] = df[["home_team", "away_team"]].replace({"LA": "LAR"})
@@ -316,11 +340,83 @@ def _i(v):
     return int(f) if f is not None else None
 
 
+def _sgo_event_books(e):
+    """Parse one SGO event into ((away_long, home_long), books) or None."""
+    home = ((e.get("teams") or {}).get("home") or {}).get("names", {}).get("long", "")
+    away = ((e.get("teams") or {}).get("away") or {}).get("names", {}).get("long", "")
+    if not home or not away:
+        return None
+    odds = e.get("odds") or {}
+
+    def _bk(odd_id):
+        return (odds.get(odd_id) or {}).get("byBookmaker") or {}
+
+    sph, spa = _bk("points-home-game-sp-home"), _bk("points-away-game-sp-away")
+    mlh, mla = _bk("points-home-game-ml-home"), _bk("points-away-game-ml-away")
+    ovr, und = _bk("points-all-game-ou-over"), _bk("points-all-game-ou-under")
+    books = {}
+    for bk in set(sph) | set(spa) | set(mlh) | set(ovr):
+        entry = {"title": bk}
+        if bk in sph:
+            entry["home_spread"] = _f(sph[bk].get("spread"))
+            entry["home_spread_price"] = _i(sph[bk].get("odds"))
+        if bk in spa:
+            entry["away_spread"] = _f(spa[bk].get("spread"))
+            entry["away_spread_price"] = _i(spa[bk].get("odds"))
+        if bk in ovr:
+            entry["total"] = _f(ovr[bk].get("overUnder"))
+            entry["over_price"] = _i(ovr[bk].get("odds"))
+        if bk in und:
+            entry["under_price"] = _i(und[bk].get("odds"))
+        if bk in mlh:
+            entry["home_ml"] = _i(mlh[bk].get("odds"))
+        if bk in mla:
+            entry["away_ml"] = _i(mla[bk].get("odds"))
+        books[bk] = entry
+    return ((away, home), books) if books else None
+
+
+def cached_sgo_lines():
+    """Disk-cached SGO lines only — NO network, NO objects spent. Returns the
+    same dict shape as sgo_lines when a fresh cache exists, else None.
+    Used by cron scanners (value radar) that must never trigger a paid fetch."""
+    path = os.path.join(CACHE, "sgo_odds.json")
+    if not _fresh(path, SGO_CACHE_MIN * 60):
+        return None
+    try:
+        with open(path) as f:
+            raw = json.load(f)
+        out = {}
+        for e in (raw.get("data", []) if isinstance(raw, dict) else []):
+            parsed = _sgo_event_books(e)
+            if parsed:
+                out[parsed[0]] = parsed[1]
+        return out
+    except Exception:
+        return None
+
+
 def sgo_lines(api_key):
     """Multi-book lines from SportsGameOdds — SAME output shape as odds_api_lines:
     {(away_long, home_long): {book: {title, home_spread, home_spread_price,
     away_spread, away_spread_price, total, over_price, under_price,
-    home_ml, away_ml}}}. Per-event pricing: ~16 objects per weekly slate."""
+    home_ml, away_ml}}}. Per-event pricing: ~16 objects per weekly slate.
+
+    Lines FREEZE at kickoff: SGO serves live in-game odds, so any event whose
+    status.started is true keeps its books from the previous cache snapshot —
+    the model must always compare itself to a pre-game line, never a 4th-
+    quarter one."""
+    cache_path = os.path.join(CACHE, "sgo_odds.json")
+    prev = {}
+    try:  # read the PREVIOUS snapshot before _get_json may overwrite it
+        with open(cache_path) as f:
+            prev_raw = json.load(f)
+        for e in (prev_raw.get("data", []) if isinstance(prev_raw, dict) else []):
+            parsed = _sgo_event_books(e)
+            if parsed:
+                prev[parsed[0]] = parsed[1]
+    except Exception:
+        pass
     now = pd.Timestamp.now(tz="UTC")
     data = _get_json(SGO_EVENTS, "sgo_odds.json", SGO_CACHE_MIN, params={
         "leagueID": "NFL",
@@ -331,39 +427,14 @@ def sgo_lines(api_key):
     events = data.get("data", []) if isinstance(data, dict) else data
     out = {}
     for e in events:
-        home = ((e.get("teams") or {}).get("home") or {}).get("names", {}).get("long", "")
-        away = ((e.get("teams") or {}).get("away") or {}).get("names", {}).get("long", "")
-        if not home or not away:
+        parsed = _sgo_event_books(e)
+        if not parsed:
             continue
-        odds = e.get("odds") or {}
-
-        def _bk(odd_id):
-            return (odds.get(odd_id) or {}).get("byBookmaker") or {}
-
-        sph, spa = _bk("points-home-game-sp-home"), _bk("points-away-game-sp-away")
-        mlh, mla = _bk("points-home-game-ml-home"), _bk("points-away-game-ml-away")
-        ovr, und = _bk("points-all-game-ou-over"), _bk("points-all-game-ou-under")
-        books = {}
-        for bk in set(sph) | set(spa) | set(mlh) | set(ovr):
-            entry = {"title": bk}
-            if bk in sph:
-                entry["home_spread"] = _f(sph[bk].get("spread"))
-                entry["home_spread_price"] = _i(sph[bk].get("odds"))
-            if bk in spa:
-                entry["away_spread"] = _f(spa[bk].get("spread"))
-                entry["away_spread_price"] = _i(spa[bk].get("odds"))
-            if bk in ovr:
-                entry["total"] = _f(ovr[bk].get("overUnder"))
-                entry["over_price"] = _i(ovr[bk].get("odds"))
-            if bk in und:
-                entry["under_price"] = _i(und[bk].get("odds"))
-            if bk in mlh:
-                entry["home_ml"] = _i(mlh[bk].get("odds"))
-            if bk in mla:
-                entry["away_ml"] = _i(mla[bk].get("odds"))
-            books[bk] = entry
-        if books:
-            out[(away, home)] = books
+        key, books = parsed
+        if (e.get("status") or {}).get("started") and key in prev:
+            out[key] = prev[key]  # frozen pre-game line — never a live one
+        else:
+            out[key] = books
     return out
 
 
