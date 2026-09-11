@@ -100,4 +100,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from _common import run
+    run(main)

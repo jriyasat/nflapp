@@ -241,18 +241,17 @@ def main():
     elo = pr.Elo(games)
     # log model picks (>=2pt edges) daily; grade settled picks
     books_by_abbr = {}
-    key_path = os.path.join(dl.CACHE, "odds_api_key.txt")
-    if os.path.exists(key_path):
-        try:
-            _key = open(key_path).read().strip()
-            if _key:
-                raw = dl.odds_api_lines(_key)
-                for (an_, hn), books in raw.items():
-                    k = (dl.TEAM_NAME_TO_ABBR.get(an_), dl.TEAM_NAME_TO_ABBR.get(hn))
-                    if all(k):
-                        books_by_abbr[k] = books
-        except Exception:
-            pass
+    try:
+        _sgo = dl.sgo_api_key()
+        _key = _sgo or open(os.path.join(dl.CACHE, "odds_api_key.txt")).read().strip()
+        if _key:
+            raw = dl.sgo_lines(_key) if _sgo else dl.odds_api_lines(_key)
+            for (an_, hn), books in raw.items():
+                k = (dl.TEAM_NAME_TO_ABBR.get(an_), dl.TEAM_NAME_TO_ABBR.get(hn))
+                if all(k):
+                    books_by_abbr[k] = books
+    except Exception:
+        pass
     try:
         espn_odds = dl.espn_week_odds(season, week)
     except Exception:
@@ -425,5 +424,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    os._exit(0)  # libsql client threads can hang interpreter shutdown
+    from _common import run
+    run(main)

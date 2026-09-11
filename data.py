@@ -94,12 +94,30 @@ def current_season_week(df):
 
 
 _ESPN_DOWN_UNTIL = 0.0  # in-process circuit breaker: skip ESPN for 30min after a WAF ban
+_ODDS_DOWN_UNTIL = 0.0  # same for The Odds API after a quota/auth failure (401/429)
 
 
-def _get_json(url, cache_name, max_age_min, params=None, service=None):
-    if service == "espn" and time.time() < _ESPN_DOWN_UNTIL:
-        raise requests.HTTPError("ESPN circuit open (rate-limited recently)")
+def _get_json(url, cache_name, max_age_min, params=None, service=None, extra_headers=None):
     path = os.path.join(CACHE, cache_name)
+    if service == "espn" and time.time() < _ESPN_DOWN_UNTIL:
+        # circuit open (recent WAF ban): serve stale cache if we have one
+        # instead of raising — degraded data beats a broken page
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        raise requests.HTTPError("ESPN circuit open (rate-limited recently)")
+    if service != "espn" and time.time() < _ODDS_DOWN_UNTIL:
+        # quota/auth breaker: a dead key must never cost retry-sleeps per call
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        raise requests.HTTPError("Odds API circuit open (quota/auth failure recently)")
     if _fresh(path, max_age_min * 60):
         try:
             with open(path) as f:
@@ -110,12 +128,14 @@ def _get_json(url, cache_name, max_age_min, params=None, service=None):
     attempts = 1 if service == "espn" else 3  # ESPN WAF bans are IP+time based; retrying is pointless
     for attempt in range(attempts):
         try:
-            r = requests.get(url, params=params, timeout=30,
-                             headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                                                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                                    "Chrome/126.0 Safari/537.36",
-                                      "Accept": "application/json",
-                                      "Referer": "https://www.espn.com/"})
+            hdrs = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                 "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                 "Chrome/126.0 Safari/537.36",
+                    "Accept": "application/json",
+                    "Referer": "https://www.espn.com/"}
+            if extra_headers:
+                hdrs.update(extra_headers)
+            r = requests.get(url, params=params, timeout=15, headers=hdrs)
             r.raise_for_status()
             data = r.json()
             tmp = path + ".tmp"  # atomic: concurrent readers never see a partial file
@@ -125,9 +145,16 @@ def _get_json(url, cache_name, max_age_min, params=None, service=None):
             return data
         except Exception as e:
             last_err = e
-            if service == "espn" and getattr(getattr(e, "response", None), "status_code", None) == 403:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if service == "espn" and status == 403:
                 globals()["_ESPN_DOWN_UNTIL"] = time.time() + 1800
-            time.sleep(1.5 * (attempt + 1))
+            if service != "espn" and status in (401, 429):
+                # dead/exhausted key: retrying burns 9s of sleeps for nothing —
+                # open the breaker for 6h and serve stale from now on
+                globals()["_ODDS_DOWN_UNTIL"] = time.time() + 6 * 3600
+                break
+            if attempt < attempts - 1:
+                time.sleep(1.5 * (attempt + 1))
     # fall back to stale cache if we have one
     if os.path.exists(path):
         try:
@@ -261,6 +288,85 @@ def odds_api_lines(api_key):
     return out
 
 
+SGO_EVENTS = "https://api.sportsgameodds.com/v2/events/"
+SGO_BOOKS = "draftkings,fanduel,betmgm,caesars,espnbet"  # verified on amateur tier (others 400)
+SGO_CACHE_MIN = 120  # free tier = 2,500 objects/mo (~156 weekly-slate fetches) — be stingy
+
+
+def sgo_api_key():
+    """SportsGameOdds key: SGO_API_KEY env, else data/sgo_api_key.txt. '' if none."""
+    k = os.environ.get("SGO_API_KEY", "").strip()
+    if k:
+        return k
+    try:
+        return open(os.path.join(CACHE, "sgo_api_key.txt")).read().strip()
+    except Exception:
+        return ""
+
+
+def _f(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _i(v):
+    f = _f(v)
+    return int(f) if f is not None else None
+
+
+def sgo_lines(api_key):
+    """Multi-book lines from SportsGameOdds — SAME output shape as odds_api_lines:
+    {(away_long, home_long): {book: {title, home_spread, home_spread_price,
+    away_spread, away_spread_price, total, over_price, under_price,
+    home_ml, away_ml}}}. Per-event pricing: ~16 objects per weekly slate."""
+    now = pd.Timestamp.now(tz="UTC")
+    data = _get_json(SGO_EVENTS, "sgo_odds.json", SGO_CACHE_MIN, params={
+        "leagueID": "NFL",
+        "startsAfter": (now - pd.Timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "startsBefore": (now + pd.Timedelta(days=8)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "limit": 50, "bookmakerID": SGO_BOOKS},
+        extra_headers={"x-api-key": api_key})
+    events = data.get("data", []) if isinstance(data, dict) else data
+    out = {}
+    for e in events:
+        home = ((e.get("teams") or {}).get("home") or {}).get("names", {}).get("long", "")
+        away = ((e.get("teams") or {}).get("away") or {}).get("names", {}).get("long", "")
+        if not home or not away:
+            continue
+        odds = e.get("odds") or {}
+
+        def _bk(odd_id):
+            return (odds.get(odd_id) or {}).get("byBookmaker") or {}
+
+        sph, spa = _bk("points-home-game-sp-home"), _bk("points-away-game-sp-away")
+        mlh, mla = _bk("points-home-game-ml-home"), _bk("points-away-game-ml-away")
+        ovr, und = _bk("points-all-game-ou-over"), _bk("points-all-game-ou-under")
+        books = {}
+        for bk in set(sph) | set(spa) | set(mlh) | set(ovr):
+            entry = {"title": bk}
+            if bk in sph:
+                entry["home_spread"] = _f(sph[bk].get("spread"))
+                entry["home_spread_price"] = _i(sph[bk].get("odds"))
+            if bk in spa:
+                entry["away_spread"] = _f(spa[bk].get("spread"))
+                entry["away_spread_price"] = _i(spa[bk].get("odds"))
+            if bk in ovr:
+                entry["total"] = _f(ovr[bk].get("overUnder"))
+                entry["over_price"] = _i(ovr[bk].get("odds"))
+            if bk in und:
+                entry["under_price"] = _i(und[bk].get("odds"))
+            if bk in mlh:
+                entry["home_ml"] = _i(mlh[bk].get("odds"))
+            if bk in mla:
+                entry["away_ml"] = _i(mla[bk].get("odds"))
+            books[bk] = entry
+        if books:
+            out[(away, home)] = books
+    return out
+
+
 PLAYER_STATS_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"
                     "stats_player/stats_player_week_%d.csv")
 _PS_COLS = ["player_id", "player_display_name", "position", "position_group",
@@ -293,7 +399,13 @@ def load_player_stats():
                                       low_memory=False))
     if not frames:
         raise RuntimeError("player stats unavailable")
-    return pd.concat(frames, ignore_index=True)
+    ps = pd.concat(frames, ignore_index=True)
+    # nflverse player stats use 'LA' for the Rams; the rest of the app uses 'LAR'
+    # (mirrors the load_games normalization) — without this, Rams projections
+    # silently return empty
+    ps["team"] = ps["team"].replace({"LA": "LAR"})
+    ps["opponent_team"] = ps["opponent_team"].replace({"LA": "LAR"})
+    return ps
 
 
 ODDS_EVENTS = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/events"

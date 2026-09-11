@@ -24,6 +24,8 @@
 | Streamlit app (cloud) | Streamlit Community Cloud (auto-deploys from `main`) | Stateless; reads/writes Turso |
 | Streamlit app (local) | Jeff's Mac (`./run.command` → localhost:8501) | Same code, same Turso DB |
 | Morning brief | Jeff's Mac, Hermes cron, daily 8:00 AM ET | Writes predictions + line history to Turso, delivers Telegram + email fan-out |
+| Lines (spreads/totals/ML) | **SportsGameOdds API** (`dl.sgo_lines`, 2h disk cache `data/sgo_odds.json`) — primary since 2026-09-10; The Odds API (`dl.odds_api_lines`) is fallback only (main key exhausted its 500/mo quota) | Key: `data/sgo_api_key.txt` (0600, gitignored) or env `SGO_API_KEY`; amateur free tier = 2,500 objects/mo (~156 slate fetches), 10 req/min; free-tier books: draftkings/fanduel/betmgm/caesars/espnbet (others 400); usage: `GET /v2/account/usage` with `x-api-key` header. Auth via header, errors 401/429 trip the 6h circuit breaker with stale-serve |
+| Player props lines | The Odds API, dedicated key `ODDS_API_KEY_PROPS` (separate quota) — migrate to SGO later | 6-day shared disk cache, warmed daily 10:00 ET |
 | Database | Turso (libsql, HTTPS transport) — users, bets (per-user), predictions, line_history | Shared by all |
 
 ## Update pipeline

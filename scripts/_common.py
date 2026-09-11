@@ -29,6 +29,10 @@ def bootstrap():
 
 def run(main):
     bootstrap()
+    import signal
+    # hard deadline: a hung network/DB call must never overlap the next cron tick
+    signal.signal(signal.SIGALRM, lambda *_: os._exit(1))
+    signal.alarm(600)
     try:
         main()
     except SystemExit:

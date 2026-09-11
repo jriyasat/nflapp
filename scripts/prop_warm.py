@@ -71,7 +71,9 @@ def main():
             props = dl.odds_api_event_props(key, an, hn)
             (fetched if props else empty).append(f"{away}@{home}")
         except Exception as e:
-            failed.append(f"{away}@{home}: {type(e).__name__}: {str(e)[:120]}")
+            # never print str(e): requests errors embed the URL (and apiKey)
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            failed.append(f"{away}@{home}: {type(e).__name__}({code})")
     if failed:
         print("⚠️ Prop warm — fetch failures:\n" + "\n".join(failed))
     if not fetched and empty:
@@ -80,5 +82,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    os._exit(0)  # libsql client threads can hang interpreter shutdown
+    from _common import run
+    run(main)

@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 auth.yaml
 .streamlit/secrets.toml
+UPLOADS/
+.DS_Store

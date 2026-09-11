@@ -120,7 +120,9 @@ if st.session_state.get("authentication_status") is not True:
     authenticator.login(location="main")
 if st.session_state.get("authentication_status") is not True:
     st.stop()
-USER = st.session_state.get("username", "jeff")
+if not st.session_state.get("username"):
+    st.stop()  # authenticated but no username — never default to a real account
+USER = st.session_state["username"]
 NAME = st.session_state.get("name", USER)
 LEVEL = db.user_level(USER)
 IS_ADMIN = LEVEL == "admin"
@@ -279,7 +281,8 @@ if IS_ADMIN:
                                     help="Free key at the-odds-api.com -> multi-book lines + line shopping")
     if api_key and api_key.strip() != saved_key:
         try:
-            with open(KEY_FILE, "w") as _f:
+            fd = os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as _f:
                 _f.write(api_key.strip())
             st.sidebar.success("Key saved to disk — persists across restarts")
         except Exception:
@@ -354,19 +357,26 @@ except Exception as e:
 
 books_by_abbr = {}
 odds_err = None
-if api_key:
+odds_source = None
+_sgo_key = dl.sgo_api_key()
+if _sgo_key or api_key:
     try:
-        raw = dl.odds_api_lines(api_key)
+        if _sgo_key:  # SportsGameOdds preferred; The Odds API is the fallback
+            raw = dl.sgo_lines(_sgo_key)
+            odds_source = "SportsGameOdds"
+        else:
+            raw = dl.odds_api_lines(api_key)
+            odds_source = "The Odds API"
         for (away_name, home_name), books in raw.items():
             key = (dl.TEAM_NAME_TO_ABBR.get(away_name), dl.TEAM_NAME_TO_ABBR.get(home_name))
             if all(key):
                 books_by_abbr[key] = books
     except Exception as e:
         odds_err = str(e)
-if api_key and odds_err and IS_ADMIN:
-    st.sidebar.error(f"Odds API: {odds_err}")
-elif api_key and not books_by_abbr and IS_ADMIN:
-    st.sidebar.info("Odds API: no NFL markets on the board right now.")
+if odds_err and IS_ADMIN:
+    st.sidebar.error(f"Odds ({odds_source or 'no key'}): {odds_err}")
+elif not books_by_abbr and (_sgo_key or api_key) and IS_ADMIN:
+    st.sidebar.info(f"{odds_source}: no NFL markets on the board right now.")
 
 injuries = {}
 injuries_err = None
@@ -1350,6 +1360,13 @@ if page == "📈 Track Record":
 def fmt_ml(v):
     return f"{v:+d}" if isinstance(v, (int, float)) else "-"
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _line_history(game_label):
+    """Line-movement history per game (Turso roundtrip — cache 10 min so open
+    games don't each pay a network call on every rerun)."""
+    return db.line_history(game_label)
+
+
 def lines_block(g, away, home, espn_o, books):
     # model context — shared by the chart overlay and the pinned table row
     wind_mph = None
@@ -1357,7 +1374,7 @@ def lines_block(g, away, home, espn_o, books):
         wind_mph, _ = wx.wind_for_game(g)
     pred = pr.predict_game(g, elo, books=books, espn=espn_o,
                            injuries=nv_injuries, wind_mph=wind_mph)
-    hist = db.line_history(f"{away} @ {home}")
+    hist = _line_history(f"{away} @ {home}")
     if len(hist) >= 2:
         st.caption("📉 Line movement (daily snapshots, away-team spread) — flat line = current model")
         m1, m2 = st.columns(2)
@@ -1557,7 +1574,6 @@ def props_tab(g, away, home):
             lines = cached
             st.session_state[f"props_{away}_{home}"] = cached
             st.session_state[f"props_ts_{away}_{home}"] = ts
-    rows = []
     for team, opp in ((away, home), (home, away)):
         st.markdown(f"{team_md(team)} (vs {team_md(opp, 20)})", unsafe_allow_html=True)
         tl = (-hs if team == away else hs) if hs is not None else None
@@ -1578,6 +1594,7 @@ def props_tab(g, away, home):
             st.warning("🚑 Benched: " + ", ".join(f"{b['player']} ({b['status']})" for b in res["benched"])
                        + " — volume redistributed")
         projs = pm.edges_vs_lines(res["players"], lines)
+        rows = []  # one table per team, under its header (edge-sorted)
         for p in projs:
             name = p["player"] + (" ⚠️" if p.get("flag") else "")
             if p.get("boost"):
@@ -1601,19 +1618,28 @@ def props_tab(g, away, home):
                           if p.get("player_id") else None)
                     l5 = (f"{'O' if hr['overs'] >= hr['unders'] else 'U'} "
                           f"{max(hr['overs'], hr['unders'])}-{min(hr['overs'], hr['unders'])}") if hr else ""
-                    rows.append({"Team": team, "Player": name, "Prop": label,
+                    rows.append({"Player": name, "Prop": label,
                                  "Proj": round(float(v)), "Line": e["line"], "Best Book": bb,
                                  "Edge": f"{mark} {e['lean']} {e['edge_pct']:+.0f}%",
                                  "L5": l5, "_sort": abs(e["edge_pct"])})
                 else:
-                    rows.append({"Team": team, "Player": name, "Prop": label,
+                    rows.append({"Player": name, "Prop": label,
                                  "Proj": round(float(v)), "Line": None, "Best Book": "—",
                                  "Edge": "—", "L5": "", "_sort": -1})
-    rows.sort(key=lambda r: -r["_sort"])
-    for r in rows:
-        r.pop("_sort")
-    if rows:
-        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        # group by player: each player's markets stacked (best edge first within
+        # the player), players ordered by their best edge. Name prints only on
+        # the first row of each block — reads like merged cells, not duplicates.
+        _by_p = {}
+        for r in rows:
+            _by_p.setdefault(r["Player"], []).append(r)
+        rows = []
+        for p in sorted(_by_p, key=lambda p: -max(x["_sort"] for x in _by_p[p])):
+            for i, r in enumerate(sorted(_by_p[p], key=lambda x: -x["_sort"])):
+                rows.append(r if i == 0 else dict(r, Player=""))
+        for r in rows:
+            r.pop("_sort")
+        if rows:
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     st.caption("**Proj** = NFL Edge model projection — *our* number, built from player stats. "
                "Not a book line.")
     if lines:
@@ -1648,7 +1674,8 @@ def props_tab(g, away, home):
                             st.warning("No player props posted for this game yet — books usually hang "
                                        "them a few days before kickoff.")
                     except Exception as e:
-                        st.error(f"Props fetch failed: {e}")
+                        st.error(f"Props fetch failed: {e}" if IS_ADMIN
+                                 else "Props fetch failed right now — try again later.")
     elif api_key:
         if st.button("📡 Load live prop lines", key=f"loadprops_{away}_{home}",
                      help="Lines auto-load Mon & Sat; this fetches fresh now (~4 API credits — "
@@ -1675,7 +1702,8 @@ def props_tab(g, away, home):
                             st.warning("No player props posted for this game yet — books usually hang "
                                        "them a few days before kickoff. Check back then.")
                     except Exception as e:
-                        st.error(f"Props fetch failed: {e}")
+                        st.error(f"Props fetch failed: {e}" if IS_ADMIN
+                                 else "Props fetch failed right now — try again later.")
         if st.session_state.get(f"props_none_{away}_{home}"):
             st.caption("Last check: props not on the board yet.")
     else:
@@ -1795,6 +1823,7 @@ if _board:
 open_set = st.session_state.setdefault("open_games", {0})
 
 
+@st.fragment
 def render_game(gi, g):
     away, home = g["away_team"], g["home_team"]
     spots = an.situational_spots(games, g)
