@@ -96,6 +96,11 @@ def main():
             + "\n".join(m for _, m in hits[:TOP_N])
             + "\n\n_App: https://nfledge.streamlit.app → Props tab for the full board_")
     print(full)
+    try:
+        from _common import fanout
+        fanout("propscan", f"🎰 NFL Edge Prop Edges — Week {week}", full)
+    except Exception:
+        pass
     os._exit(0)
 
 

@@ -15,8 +15,13 @@
 | NFL Inactives Watch | 98404b02208d | */15 min, 11:00-23:00 Thu/Sat/Sun/Mon | Gameday inactives ~90min pre-kickoff (ESPN summary endpoint), deduped per game |
 | NFL Props Warm (Daily) | c34350045782 | daily 10:00 ET | Warms shared prop-line cache for all games within 4 days; fetches only missing/stale games + refreshes games within 36h of kickoff (quota-safe on dedicated ODDS_API_KEY_PROPS). Replaced the old Mon+Sat pair on 2026-09-10 |
 | NFL Value Radar | 2e42c684b0b9 | */30 min, 8:00-24:00 | Spread + total edges ≥2.0 with re-alerts on ≥1-pt line moves (shows the move). Reads shared SGO cache (never spends objects) + ESPN fallback |
+| NFL Lines Warm (SGO → Turso) | 4b79a2913d68 | 6:00/12:00/18:00/23:00 ET | Pushes the SGO board (lines + player props) into the Turso `shared_cache` table with kickoff-freeze (started games keep pre-start lines). One fetch cycle for ALL environments (~64 objects/day, free-tier safe) |
 | NFL Edge keep-alive | 0627253ba560 | 8:05 + 20:05 daily | Pings /healthz; alerts only if cloud app is down |
 | Playoff build reminder | f32fe4ea0898 | one-shot 2026-12-01 | Remind Jeff to build POST support (week picker, journal/tracker grading, brief) — DECIDED: preseason skipped, pick'em shelved |
+
+## Shared cache (single-fetcher, since 2026-09-13)
+
+Turso table `shared_cache(key, payload, updated_at-epoch)`. Writer = lines-warm cron (+ prop_warm's daily push + write-on-fetch from the app). Readers (`dl._sgo_board_raw`, `dl.cached_sgo_lines`, `dl.cached_event_props`) chain: **Turso (<8h) → local disk → live fetch**, memoized in-process (the board payload is ~19MB — parsed once per change, never per call). This is why props/SGP work on Streamlit Cloud despite its ephemeral filesystem. Player props now come from the SGO slate fetch (free, `dl._sgo_event_props`); The Odds API props path remains as fallback (`props:{away}@{home}` keys in shared_cache).
 
 ## Architecture
 

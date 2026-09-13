@@ -55,6 +55,11 @@ def main():
     lines += changes[:12] + improved[:6]
     full = "\n".join(lines)
     print(full)
+    try:
+        from _common import fanout
+        fanout("injury", f"🏥 NFL Edge Injury Report — Week {week}", full)
+    except Exception:
+        pass
     os._exit(0)
 
 

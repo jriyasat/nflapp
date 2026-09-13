@@ -97,15 +97,8 @@ def main():
     sys.stdout.flush()
 
     try:
-        import notify
-        for u in db.list_users():
-            try:
-                if u.get("email_enabled") and u.get("email"):
-                    notify.send_email(u["email"], f"NFL Edge Inactives — {now.strftime('%a %b %d')}", full)
-                if u.get("telegram_enabled") and u.get("telegram_chat_id"):
-                    notify.send_telegram(u["telegram_chat_id"], full)
-            except Exception:
-                continue
+        from _common import fanout
+        fanout("inactives", f"NFL Edge Inactives — {now.strftime('%a %b %d')}", full)
     except Exception:
         pass
 

@@ -91,6 +91,8 @@ _SCHEMA = ["""CREATE TABLE IF NOT EXISTS bets (
     grade TEXT DEFAULT 'pending', profit REAL,
     UNIQUE(game, pick_type))""",
     "CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user)",
+    """CREATE TABLE IF NOT EXISTS shared_cache (
+    key TEXT PRIMARY KEY, payload TEXT, updated_at TEXT)""",
     """CREATE TABLE IF NOT EXISTS users (
     username TEXT PRIMARY KEY, name TEXT, email TEXT,
     level TEXT DEFAULT 'user', pw_hash TEXT, created_at TEXT)""",
@@ -211,6 +213,49 @@ def users_for_alert(alert, channel):
                         "telegram_chat_id": chat_id,
                         "email_enabled": ee, "telegram_enabled": te})
     return out
+
+
+# ---------------- shared cache (single-fetcher: one writer, every env reads) ----------------
+def cache_set(key, payload):
+    """Upsert a payload into the shared cache (JSON string). updated_at = epoch."""
+    with _connect() as c:
+        c.execute("INSERT INTO shared_cache (key, payload, updated_at) VALUES (?,?,?)"
+                  " ON CONFLICT(key) DO UPDATE SET payload=excluded.payload,"
+                  " updated_at=excluded.updated_at",
+                  (key, payload, str(time.time())))
+
+
+def cache_get_meta(key):
+    """Just the updated_at epoch for a key (cheap — no payload transfer)."""
+    try:
+        with _connect() as c:
+            r = c.execute("SELECT updated_at FROM shared_cache WHERE key=?", (key,)).fetchone()
+        if not r:
+            return None
+        try:
+            return float(r[0])
+        except (TypeError, ValueError):
+            return pd.Timestamp(r[0]).timestamp()
+    except Exception:
+        return None
+
+
+def cache_get(key):
+    """(payload, updated_at_epoch) or (None, None). Handles both epoch and
+    legacy ISO updated_at values."""
+    try:
+        with _connect() as c:
+            r = c.execute("SELECT payload, updated_at FROM shared_cache WHERE key=?",
+                          (key,)).fetchone()
+        if not r:
+            return None, None
+        try:
+            ts = float(r[1])
+        except (TypeError, ValueError):
+            ts = pd.Timestamp(r[1]).timestamp()
+        return r[0], ts
+    except Exception:
+        return None, None
 
 
 def migrate_legacy():

@@ -127,8 +127,14 @@ def main():
     if not hits:
         return
     hits.sort(reverse=True)
-    print(f"🚨 *VALUE RADAR — Week {week}*\n" + "\n".join(m for _, _, m in hits)
-          + "\n\n_Lines from SGO/ESPN cache — confirm in the app before betting._")
+    full = (f"🚨 *VALUE RADAR — Week {week}*\n" + "\n".join(m for _, _, m in hits)
+            + "\n\n_Lines from SGO/ESPN cache — confirm in the app before betting._")
+    print(full)
+    try:
+        from _common import fanout
+        fanout("radar", f"🚨 NFL Edge Value Radar — Week {week}", full)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

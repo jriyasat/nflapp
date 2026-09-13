@@ -79,6 +79,13 @@ def main():
     if not fetched and empty:
         print(f"ℹ️ Prop warm: no props posted yet for {len(empty)} game(s) "
               f"({', '.join(empty[:4])}{'…' if len(empty) > 4 else ''}) — books haven't hung them.")
+    # single-fetcher: push the SGO board (lines + props) to the Turso shared cache
+    try:
+        n = dl.sgo_push_shared(dl.sgo_api_key())
+        if n == 0:
+            print("⚠️ Prop warm: SGO board push returned 0 events")
+    except Exception as e:
+        print(f"⚠️ Prop warm: SGO board push failed: {type(e).__name__}")
 
 
 if __name__ == "__main__":

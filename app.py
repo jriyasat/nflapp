@@ -418,7 +418,7 @@ _sgo_key = dl.sgo_api_key()
 if _sgo_key or api_key:
     try:
         if _sgo_key:  # SportsGameOdds preferred; The Odds API is the fallback
-            raw = dl.sgo_lines(_sgo_key)
+            raw = dl.cached_sgo_lines() or dl.sgo_lines(_sgo_key)  # Turso/disk first (free), live fetch last resort
             odds_source = "SportsGameOdds"
         else:
             raw = dl.odds_api_lines(api_key)
@@ -1284,6 +1284,26 @@ def settings_page():
         db.update_prefs(USER, email_enabled=email_on, telegram_enabled=tg_on)
         st.success("Preferences saved ✅")
         st.rerun()
+
+    st.subheader("🔔 Alert subscriptions")
+    st.caption("Choose which alerts you want and where they land. Telegram delivery "
+               "needs your Telegram linked (above); email needs your email saved.")
+    _ap = db.get_alert_prefs(USER)
+    _ch_disp = {"off": "Off", "telegram": "📱 Telegram", "email": "📧 Email", "both": "📱+📧 Both"}
+    _ch_keys = list(_ch_disp)
+    _new = {}
+    for _ak, _alabel in db.ALERT_TYPES.items():
+        _cur = _ap.get(_ak, "off")
+        _new[_ak] = st.selectbox(_alabel, _ch_keys, index=_ch_keys.index(_cur),
+                                 format_func=lambda k: _ch_disp[k], key=f"ap_{_ak}")
+    if st.button("💾 Save alert subscriptions"):
+        for _ak, _ch in _new.items():
+            db.set_alert_pref(USER, _ak, _ch)
+        st.success("Alert subscriptions saved ✅")
+        st.rerun()
+    if IS_ADMIN:
+        st.caption("🛠️ You (admin) also get every watchdog alert on Telegram via the bot, "
+                   "regardless of these settings.")
 
     st.subheader("🗑️ Delete account")
     st.warning("This deletes your account AND your private bet journal. Permanent.")

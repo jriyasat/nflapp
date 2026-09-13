@@ -376,24 +376,128 @@ def _sgo_event_books(e):
     return ((away, home), books) if books else None
 
 
-def cached_sgo_lines():
-    """Disk-cached SGO lines only — NO network, NO objects spent. Returns the
-    same dict shape as sgo_lines when a fresh cache exists, else None.
-    Used by cron scanners (value radar) that must never trigger a paid fetch."""
-    path = os.path.join(CACHE, "sgo_odds.json")
-    if not _fresh(path, SGO_CACHE_MIN * 60):
-        return None
+SGO_PROP_STATS = {"passing_yards": "player_pass_yds", "rushing_yards": "player_rush_yds",
+                  "receiving_yards": "player_reception_yds", "receptions": "player_receptions"}
+
+
+def _sgo_event_props(e):
+    """Player prop lines from one SGO event -> _parse_props shape
+    {market: {player: {point (median), over/under price+book, n_books}}}.
+    Props ride free inside the 16-object slate fetch — no extra objects."""
+    players = e.get("players") or {}
+    odds = e.get("odds") or {}
+    raw = {}
+    for o in odds.values():
+        mkt = SGO_PROP_STATS.get(o.get("statID"))
+        if not mkt or o.get("betTypeID") != "ou":
+            continue
+        name = (players.get(o.get("playerID") or "") or {}).get("name")
+        if not name:
+            continue
+        ent = raw.setdefault((mkt, name), {"points": [], "over": [], "under": []})
+        for bk, b in (o.get("byBookmaker") or {}).items():
+            if b.get("available") is False:
+                continue
+            pt, pr = _f(b.get("overUnder")), _i(b.get("odds"))
+            if pt is not None:
+                ent["points"].append(pt)
+            (ent["over"] if o.get("sideID") == "over" else ent["under"]).append(
+                (pr if pr is not None else -110, bk))
+    out = {}
+    for (mkt, name), ent in raw.items():
+        if not ent["points"]:
+            continue
+        out.setdefault(mkt, {})[name] = {
+            "point": float(np_median(ent["points"])),
+            "over_price": max(ent["over"])[0] if ent["over"] else None,
+            "over_book": max(ent["over"])[1] if ent["over"] else None,
+            "under_price": max(ent["under"])[0] if ent["under"] else None,
+            "under_book": max(ent["under"])[1] if ent["under"] else None,
+            "n_books": len(ent["points"]),
+        }
+    return out
+
+
+def _sgo_board_raw():
+    """The shared SGO board payload: Turso single-fetcher copy (<8h) first,
+    then local disk (<SGO_CACHE_MIN). Returns (payload_dict, epoch) or (None, None).
+    Memoized in-process by updated_at/mtime — the payload is ~19MB, so it is
+    parsed once per change, never per call."""
     try:
-        with open(path) as f:
-            raw = json.load(f)
-        out = {}
-        for e in (raw.get("data", []) if isinstance(raw, dict) else []):
-            parsed = _sgo_event_books(e)
-            if parsed:
-                out[parsed[0]] = parsed[1]
-        return out
+        import db
+        ts = db.cache_get_meta("sgo_board_pregame")
+        if ts and (time.time() - ts) < 8 * 3600:
+            if _MEMO.get("sgo_board_ts") == ts:
+                return _MEMO["sgo_board"], ts
+            payload, ts2 = db.cache_get("sgo_board_pregame")
+            if payload:
+                parsed = json.loads(payload)
+                _MEMO["sgo_board"], _MEMO["sgo_board_ts"] = parsed, ts2
+                return parsed, ts2
     except Exception:
+        pass
+    path = os.path.join(CACHE, "sgo_odds.json")
+    if _fresh(path, SGO_CACHE_MIN * 60):
+        try:
+            mt = os.path.getmtime(path)
+            if _MEMO.get("sgo_disk_mt") == mt:
+                return _MEMO["sgo_disk"], mt
+            with open(path) as f:
+                parsed = json.load(f)
+            _MEMO["sgo_disk"], _MEMO["sgo_disk_mt"] = parsed, mt
+            return parsed, mt
+        except Exception:
+            pass
+    return None, None
+
+
+def sgo_push_shared(api_key):
+    """WRITER (single-fetcher): fetch the SGO board (2h TTL) and push a
+    KICKOFF-FROZEN payload into the Turso shared cache: pre-start events update
+    normally; started events keep their last pre-start snapshot (SGO serves
+    live in-game odds — the model must never compare itself to a 4th-quarter
+    line)."""
+    data = _get_json(SGO_EVENTS, "sgo_odds.json", SGO_CACHE_MIN, params={
+        "leagueID": "NFL",
+        "startsAfter": (pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "startsBefore": (pd.Timestamp.now(tz="UTC") + pd.Timedelta(days=8)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "limit": 50, "bookmakerID": SGO_BOOKS},
+        extra_headers={"x-api-key": api_key})
+    import db
+    prev_raw, _ = db.cache_get("sgo_board_pregame")
+    prev_events = {}
+    if prev_raw:
+        try:
+            for e in json.loads(prev_raw).get("data", []):
+                prev_events[e.get("eventID")] = e
+        except Exception:
+            pass
+    merged = []
+    for e in (data.get("data", []) if isinstance(data, dict) else []):
+        if (e.get("status") or {}).get("started"):
+            prev_e = prev_events.get(e.get("eventID"))
+            if prev_e is not None:
+                merged.append(prev_e)          # frozen pre-game version
+            else:
+                merged.append(dict(e, odds={}))  # no pre-game snapshot: strip live lines
+        else:
+            merged.append(e)
+    out = dict(data, data=merged) if isinstance(data, dict) else data
+    db.cache_set("sgo_board_pregame", json.dumps(out))
+    return len(merged)
+
+
+def cached_sgo_lines():
+    """Board lines from the shared payload (Turso/disk) — NO network, NO objects."""
+    raw, _ = _sgo_board_raw()
+    if not raw:
         return None
+    out = {}
+    for e in (raw.get("data", []) if isinstance(raw, dict) else []):
+        parsed = _sgo_event_books(e)
+        if parsed:
+            out[parsed[0]] = parsed[1]
+    return out
 
 
 def sgo_lines(api_key):
@@ -539,13 +643,38 @@ def odds_api_event_props(api_key, away_name, home_name):
     data = _get_json(ODDS_EVENT_ODDS % event_id, f"props_{event_id}.json", PROP_CACHE_MIN,
                      params={"apiKey": api_key, "regions": "us", "markets": PROP_MARKETS,
                              "oddsFormat": "american"})
-    return _parse_props(data)
+    parsed = _parse_props(data)
+    try:  # single-fetcher: share this fetch with every environment via Turso
+        import db
+        db.cache_set(f"props:{away_name}@{home_name}", json.dumps(parsed))
+    except Exception:
+        pass
+    return parsed
 
 
 def cached_event_props(away_name, home_name):
-    """Disk-cached prop lines only — no network, no credits. Returns
-    (props_dict, cache_mtime_epoch) when a fresh (<24h) cache exists, else (None, None).
-    props_dict may be {} when books haven't posted props for the game yet."""
+    """Prop lines for one game, NO network/credits. Returns (props_dict, epoch)
+    or (None, None). Chain: SGO shared board (props ride the slate fetch) ->
+    Turso single-fetcher copy of legacy Odds-API props -> local disk cache."""
+    # 1) SGO shared board — covers every env (Cloud included) with zero extra spend
+    raw, ts = _sgo_board_raw()
+    if raw:
+        for e in (raw.get("data", []) if isinstance(raw, dict) else []):
+            h = ((e.get("teams") or {}).get("home") or {}).get("names", {}).get("long", "")
+            a = ((e.get("teams") or {}).get("away") or {}).get("names", {}).get("long", "")
+            if (a, h) == (away_name, home_name):
+                props = _sgo_event_props(e)
+                if props:
+                    return props, ts
+    # 2) Turso copy of legacy Odds-API props (name-keyed, no event_id needed)
+    try:
+        import db
+        payload, ts2 = db.cache_get(f"props:{away_name}@{home_name}")
+        if payload and ts2 and (time.time() - ts2) < PROP_CACHE_MIN * 60:
+            return json.loads(payload), ts2
+    except Exception:
+        pass
+    # 3) legacy local disk cache
     try:
         with open(os.path.join(CACHE, "odds_events.json")) as f:
             ev = json.load(f)

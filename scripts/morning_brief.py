@@ -375,6 +375,8 @@ def main():
                 addr = u.get("email") or (gmail_user if u["username"] == "jeff" else None)
                 if not addr or not (u.get("email_enabled") or u["username"] == "jeff"):
                     continue
+                if db.get_alert_prefs(u["username"]).get("brief") not in ("email", "both"):
+                    continue  # user unsubscribed from the brief (alert matrix)
                 urec = jeff_rec if u["username"] == "jeff" else (
                     recap_sections(games, season, journal_user=u["username"])[1] if is_monday else [])
                 user_full = (f"🏈 *NFL Edge Daily Board* — {today}\n"
@@ -406,7 +408,8 @@ def main():
                 else:
                     urec = []
                 user_full = header + "\n" + "\n\n".join(model_rec + urec + sections)
-                if u.get("telegram_enabled") and u.get("telegram_chat_id"):
+                if (db.get_alert_prefs(u["username"]).get("brief") in ("telegram", "both")
+                        and u.get("telegram_chat_id")):
                     notify.send_telegram(u["telegram_chat_id"], user_full)
             except Exception:
                 continue
