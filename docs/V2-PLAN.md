@@ -37,8 +37,8 @@ Ship the nflverse data upgrade in five independently-shippable, independently-re
 | S2 | 0 | CSV loaders: snaps, NGS ×3, QBR, FTN, depth charts | autonomous | 5 loaders cached + schema tests pass |
 | S3 | 0 | Team EPA loader (pbp parquet, aggregate-then-delete) | autonomous | weekly EPA table cached, raw deleted, disk footprint small |
 | S4 | 0 | Data Health admin section (Settings) + `data/health.json` silent-failure logging (audit §5.7) | autonomous → **interactive checkpoint** | Jeff eyeballs Data Health in :8503 → Phase 0 sign-off |
-| S5 | 1 | Snap-share volume slot 1: recency-weighted snap share replaces season-average (`props_model.py:~120`; fold in audit §4 unweighted-mean fix) | autonomous | walk-forward 2023–25 backtest run |
-| S6 | 1 | Injury absorption (depth-chart redistribution, slot 2 `:131-135`) + NGS RYOE → rush v2; separation/cushion → candidate rec v3 | autonomous | backtest vs current props v2 |
+| S5 | 1 | Snap-share volume slot 1: recency-weighted snap share replaces season-average (`props_model.py:~120`; fold in audit §4 unweighted-mean fix) + **SGO receipts harness**: `includeOpenCloseOdds` closing-line grading + `results` box-score same-day grading (after 1-week cross-check vs nflverse — V2-IDEAS #3) | autonomous | walk-forward 2023–25 backtest run; receipts graded vs SGO close |
+| S6 | 1 | Injury absorption (depth-chart redistribution, slot 2 `:131-135`) + NGS RYOE → rush v2; separation/cushion → candidate rec v3 + **new markets: rush/pass attempts, completions, anytime TD** (28 stat markets already live in slate payload — we model 4) | autonomous | backtest vs current props v2, per-market |
 | S7 | 1 | **GATE:** props walk-forward must beat **61% lean hit-rate** | **interactive** | Jeff ship/no-ship → merge or revert |
 | S8 | 2 | Role-keyed `injury_adjustment()` (starter/backup via depth charts); QB-out = f(starter QBR − backup QBR) | autonomous | QB-out proxy cohort flagged for CLV tracking |
 | S9 | 2 | **GATE:** CLV judgment at the already-scheduled **Nov 1 review** | **interactive** | Jeff ship/no-ship |
@@ -148,7 +148,7 @@ New module `nflverse_extra.py`, one cached loader per dataset. **Aggregate on lo
 
 ## Phases 1–4 — build briefs (detail expanded at each phase kickoff)
 
-**Phase 1 — Props (S5–S7).** Snap-share volume replaces season-average volume at `props_model.py:~120` (recency-weighted; fold in the audit's unweighted-2-season-mean fix — don't patch v1). Injury absorption redistributes an OUT starter's snap share to next-man-up via depth charts (`:131-135`). NGS: RYOE → rush v2; separation/cushion → candidate rec v3. **Gate:** walk-forward 2023–25 vs current props v2 — must beat **61% lean hit-rate**.
+**Phase 1 — Props (S5–S7).** Snap-share volume replaces season-average volume at `props_model.py:~120` (recency-weighted; fold in the audit's unweighted-2-season-mean fix — don't patch v1). Injury absorption redistributes an OUT starter's snap share to next-man-up via depth charts (`:131-135`). NGS: RYOE → rush v2; separation/cushion → candidate rec v3. **SGO Tier-1 scope (V2-IDEAS #3, verified live 2026-09-13):** (a) receipts harness — grade picks vs SGO `includeOpenCloseOdds` closing lines (independent of our own kickoff-freeze snapshots) and grade props same-day via SGO `results` box scores (nflverse lags to Tue/Wed); (b) extend props model to new markets already live in the slate payload: rush attempts, pass attempts/completions (direct outputs of snap-share × team plays), anytime TD (red-zone usage + implied team total). One-time 2024–25 box-score backfill ≈ 550 objects (spread over days to fit the rolling 2,500/mo). SGO boxes cover 2024 Wk1→now only — nflverse remains the 2023–25 training source. **Gate:** walk-forward 2023–25 vs current props v2 — must beat **61% lean hit-rate**.
 
 **Phase 2 — Injury pricing (S8–S9).** `injury_adjustment()` keyed off depth-chart role instead of flat values; QB-out deduction = f(starter QBR − backup QBR/EPA), not flat −7/−3. **Gate:** CLV judgment at the Nov 1 review (QB-out proxy cohort) — calendar-bound, builds must land by mid-Oct.
 
@@ -167,7 +167,8 @@ New module `nflverse_extra.py`, one cached loader per dataset. **Aggregate on lo
 | Phase 2 gate is calendar-bound (Nov 1) | S5–S8 prioritized; if S8 slips past ~Oct 15, gate slides to a later review — Jeff decides |
 | app.py split (audit §5.2) would conflict with every V2 app.py touch | Jeff's call: slot as S4b *before* Phase 1, or defer to post-V2 |
 | AppTest hangs in desktop env | all smoke runs inside Docker; investigate root cause only if it starts failing in Docker too |
-| Backtests need historical as-of data (lines, injuries) | Turso `line_history`/`predictions` are insert-only since V1 — verify coverage for 2023–25 walk-forward at S5 kickoff; gap-fill from nflverse loaders where needed |
+| Backtests need historical as-of data (lines, injuries) | Turso `line_history`/`predictions` are insert-only since V1 — verify coverage for 2023–25 walk-forward at S5 kickoff; gap-fill from nflverse loaders where needed; SGO `includeOpenCloseOdds` gives closes back to 2024 |
+| SGO results completeness | Saw a partial QB line on a `finalized` game (9/13) — S5 starts with a 1-week SGO-vs-nflverse box-score cross-check; SGO grading goes live only if it matches |
 
 ## Merge protocol (every phase)
 
