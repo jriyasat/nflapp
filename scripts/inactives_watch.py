@@ -45,38 +45,61 @@ def main():
     if not soon:
         return
 
-    sb = dl._get_json(dl.ESPN_SCOREBOARD + f"?dates={today.strftime('%Y%m%d')}&limit=50",
-                      f"espn_sb_{today.strftime('%Y%m%d')}.json", 15)
+    # source 1: ESPN (full gameday inactives incl. healthy scratches)
     ev_map = {}
-    for e in sb.get("events", []):
+    source = "espn"
+    try:
+        sb = dl._get_json(dl.ESPN_SCOREBOARD + f"?dates={today.strftime('%Y%m%d')}&limit=50",
+                          f"espn_sb_{today.strftime('%Y%m%d')}.json", 15, service="espn")
+        for e in sb.get("events", []):
+            try:
+                comps = e["competitions"][0]["competitors"]
+                home = next(c for c in comps if c["homeAway"] == "home")["team"]["abbreviation"]
+                away = next(c for c in comps if c["homeAway"] == "away")["team"]["abbreviation"]
+                ev_map[(away, home)] = e["id"]
+            except Exception:
+                continue
+    except Exception:
+        source = "nflverse"  # ESPN WAF/rate-limit — fall back, don't die
+
+    # source 2 (fallback): official NFL injury report via nflverse — every "Out"
+    # designation, just no healthy scratches
+    nv = {}
+    if source == "nflverse":
         try:
-            comps = e["competitions"][0]["competitors"]
-            home = next(c for c in comps if c["homeAway"] == "home")["team"]["abbreviation"]
-            away = next(c for c in comps if c["homeAway"] == "away")["team"]["abbreviation"]
-            ev_map[(away, home)] = e["id"]
+            nv, _ = dl.nflverse_injuries(max_age_h=3)
         except Exception:
-            continue
+            nv = {}
+        if not nv:
+            return  # both sources down — skip this tick silently
 
     snap = json.load(open(SNAP)) if os.path.exists(SNAP) else {}
     new_snap = dict(snap)
     sections = []
     for g, kickoff in soon:
         label = f"{g['away_team']} @ {g['home_team']}"
-        eid = ev_map.get((g["away_team"], g["home_team"]))
-        if not eid:
-            continue
-        try:
-            summ = dl._get_json(ESPN_SUMMARY + f"?event={eid}", f"espn_sum_{eid}.json", 15)
-        except Exception:
-            continue
         inact = []
-        for block in summ.get("injuries", []):
-            tabbr = block.get("team", {}).get("abbreviation", "?")
-            for inj in block.get("injuries", []):
-                if str(inj.get("status", "")).lower() in ("out", "inactive"):
-                    pos = inj.get("position", {})
-                    pos = pos.get("abbreviation", "") if isinstance(pos, dict) else str(pos or "")
-                    inact.append((tabbr, inj.get("athlete", {}).get("displayName", "?"), pos))
+        if source == "espn":
+            eid = ev_map.get((g["away_team"], g["home_team"]))
+            if not eid:
+                continue
+            try:
+                summ = dl._get_json(ESPN_SUMMARY + f"?event={eid}", f"espn_sum_{eid}.json", 15,
+                                    service="espn")
+            except Exception:
+                continue
+            for block in summ.get("injuries", []):
+                tabbr = block.get("team", {}).get("abbreviation", "?")
+                for inj in block.get("injuries", []):
+                    if str(inj.get("status", "")).lower() in ("out", "inactive"):
+                        pos = inj.get("position", {})
+                        pos = pos.get("abbreviation", "") if isinstance(pos, dict) else str(pos or "")
+                        inact.append((tabbr, inj.get("athlete", {}).get("displayName", "?"), pos))
+        else:
+            for team in (g["away_team"], g["home_team"]):
+                for r in (nv.get(team) or {}).get("rows", []):
+                    if str(r.get("status", "")).lower() in ("out", "inactive"):
+                        inact.append((team, r.get("name", "?"), r.get("position", "")))
         if not inact:
             continue
         sig = "|".join(sorted(f"{t}:{n}" for t, n, _ in inact))
@@ -90,9 +113,12 @@ def main():
     if not sections:
         return
 
+    src_note = ("" if source == "espn" else
+                "\n\n_via the official NFL injury report (ESPN unavailable) — healthy scratches not included._")
     full = (f"🏈 *Gameday Inactives* — {now.strftime('%a %b %d, %-I:%M %p')}\n\n"
             + "\n\n".join(sections)
-            + "\n\n_Props on OUT players are dead — check the Props tab for who absorbs the volume._")
+            + "\n\n_Props on OUT players are dead — check the Props tab for who absorbs the volume._"
+            + src_note)
     sys.stdout.write(full + "\n")
     sys.stdout.flush()
 
