@@ -1931,19 +1931,30 @@ open_set = st.session_state.setdefault("open_games", {0})
 
 
 @st.fragment(run_every=60)
-def _live_strip(away, home):
-    """Auto-updating live-game strip above an open game. Loud by design."""
+def _live_strip(away, home, g):
+    """Auto-updating live-game strip above an open game. Loud by design.
+    The LOCK banner keys off kickoff time (schedule), so it shows even when
+    every score feed is down; the score fills in when ESPN or SGO answers."""
+    try:
+        _gt = str(g.get("gametime", "") or "0:00")
+        _hh, _mm = (int(x) for x in _gt.split(":")[:2])
+        kickoff = pd.Timestamp(g["gameday"]).replace(hour=_hh, minute=_mm)
+        in_progress = kickoff <= pd.Timestamp.now() and pd.isna(g.get("result"))
+    except Exception:
+        in_progress = False
     ev = _live_score_map().get((away, home))
-    if not ev or ev["state"] == "pre":
-        return
-    if ev["state"] == "post":
+    if ev and ev["state"] == "post":
         st.success(f"🏁 **Final: {ev['away']} {ev['a_score']} @ {ev['home']} {ev['h_score']}** "
                    f"— this game moves to 🏁 Completed on the next data refresh.")
         return
+    if not in_progress and not (ev and ev["state"] == "in"):
+        return
+    score_txt = (f"🔴 **LIVE: {ev['away']} {ev['a_score']} @ {ev['home']} {ev['h_score']}**"
+                 f"  —  {ev['detail']}" if ev else
+                 "🔴 **game in progress** — live score feed unavailable, but the lock is real")
     st.error(f"🔒 **LOCKED AT KICKOFF** — the lines, edges & model numbers below are the "
              f"**pre-game** numbers, frozen at kickoff. They do NOT move during the game.\n\n"
-             f"🔴 **LIVE: {ev['away']} {ev['a_score']} @ {ev['home']} {ev['h_score']}**"
-             f"  —  {ev['detail']}")
+             + score_txt)
 
 
 def _pre_game_tag(away, home):
@@ -2034,7 +2045,7 @@ for gi, (_, g) in enumerate(upcoming_games.iterrows()):
         st.rerun()
     if is_open:
         with st.container(border=True):
-            _live_strip(away, home)
+            _live_strip(away, home, g)
             render_game(gi, g)
 
 # ---------------- completed games (auto-moved here as finals post) ----------------
