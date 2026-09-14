@@ -58,9 +58,13 @@ def recap_sections(games, season, journal_user=None):
             for _, r in wk.iterrows():
                 mark = {"won": "✅", "lost": "❌", "push": "➖"}[r.grade]
                 lines.append(f"{mark} {r.game}: {r.side} ({r.pick_type})")
-            s = tracker.summary(picks)
-            if s["n"]:
-                lines.append(f"Season: *{s['wins']}-{s['losses']}-{s['pushes']} ({s['profit']:+.2f}u, {s['roi']:+.1f}% ROI)*")
+            s = tracker.summary(picks)  # {"spread": {...}, "total": {...}, "pending": n}
+            tot_n = s["spread"]["n"] + s["total"]["n"]
+            if tot_n:
+                prof = s["spread"]["profit"] + s["total"]["profit"]
+                roi = prof / tot_n * 100  # flat 1u stakes
+                lines.append(f"Season: spread *{s['spread']['record']}* · total *{s['total']['record']}* "
+                             f"({prof:+.2f}u, {roi:+.1f}% ROI)")
             model_out.append("📅 *MONDAY RECAP — model*\n" + "\n".join(lines))
     if journal_user:
         bets = journal.settle(journal.load_bets(journal_user), games, journal_user)
