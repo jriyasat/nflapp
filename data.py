@@ -318,10 +318,17 @@ SGO_CACHE_MIN = 120  # free tier = 2,500 objects/mo (~156 weekly-slate fetches) 
 
 
 def sgo_api_key():
-    """SportsGameOdds key: SGO_API_KEY env, else data/sgo_api_key.txt. '' if none."""
+    """SportsGameOdds key: SGO_API_KEY env, st.secrets, or data/sgo_api_key.txt. '' if none."""
     k = os.environ.get("SGO_API_KEY", "").strip()
     if k:
         return k
+    try:
+        import streamlit as st
+        k = (st.secrets.get("SGO_API_KEY") or "").strip()
+        if k:
+            return k
+    except Exception:
+        pass
     try:
         return open(os.path.join(CACHE, "sgo_api_key.txt")).read().strip()
     except Exception:

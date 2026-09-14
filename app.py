@@ -415,20 +415,21 @@ books_by_abbr = {}
 odds_err = None
 odds_source = None
 _sgo_key = dl.sgo_api_key()
-if _sgo_key or api_key:
-    try:
-        if _sgo_key:  # SportsGameOdds preferred; The Odds API is the fallback
-            raw = dl.cached_sgo_lines() or dl.sgo_lines(_sgo_key)  # Turso/disk first (free), live fetch last resort
-            odds_source = "SportsGameOdds"
-        else:
-            raw = dl.odds_api_lines(api_key)
-            odds_source = "The Odds API"
-        for (away_name, home_name), books in raw.items():
-            key = (dl.TEAM_NAME_TO_ABBR.get(away_name), dl.TEAM_NAME_TO_ABBR.get(home_name))
-            if all(key):
-                books_by_abbr[key] = books
-    except Exception as e:
-        odds_err = str(e)
+try:
+    raw = dl.cached_sgo_lines()  # free & keyless: Turso shared cache / disk (works on Cloud)
+    odds_source = "SportsGameOdds" if raw else None
+    if not raw and _sgo_key:  # live fetch only when the shared cache is empty
+        raw = dl.sgo_lines(_sgo_key)
+        odds_source = "SportsGameOdds"
+    if not raw and api_key:  # last resort: The Odds API (quota-dead main key)
+        raw = dl.odds_api_lines(api_key)
+        odds_source = "The Odds API"
+    for (away_name, home_name), books in (raw or {}).items():
+        key = (dl.TEAM_NAME_TO_ABBR.get(away_name), dl.TEAM_NAME_TO_ABBR.get(home_name))
+        if all(key):
+            books_by_abbr[key] = books
+except Exception as e:
+    odds_err = str(e)
 if odds_err and IS_ADMIN:
     st.sidebar.error(f"Odds ({odds_source or 'no key'}): {odds_err}")
 elif not books_by_abbr and (_sgo_key or api_key) and IS_ADMIN:
