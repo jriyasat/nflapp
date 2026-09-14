@@ -661,6 +661,23 @@ if page == "📒 Bet Journal":
     st.stop()
 
 # ---------------- live page ----------------
+def _live_score_map():
+    """{(away, home): live event} — ESPN first, SGO when ESPN is WAF-banned."""
+    try:
+        evs = dl.espn_live_scores(season, week)
+        if evs:
+            return {(ev["away"], ev["home"]): ev for ev in evs}
+    except Exception:
+        pass
+    try:
+        key = dl.sgo_api_key()
+        if key:
+            return {(ev["away"], ev["home"]): ev for ev in dl.sgo_live_scores(key)}
+    except Exception:
+        pass
+    return {}
+
+
 def _live_body(season, week):
     live = list(_live_score_map().values())  # ESPN first, SGO fallback when WAF-banned
     if not live:
@@ -1905,23 +1922,6 @@ if _board:
 
 # ---------------- main loop (lazy: only open games render — huge rerun win) ----------------
 open_set = st.session_state.setdefault("open_games", {0})
-
-
-def _live_score_map():
-    """{(away, home): live event} — ESPN first, SGO when ESPN is WAF-banned."""
-    try:
-        evs = dl.espn_live_scores(season, week)
-        if evs:
-            return {(ev["away"], ev["home"]): ev for ev in evs}
-    except Exception:
-        pass
-    try:
-        key = dl.sgo_api_key()
-        if key:
-            return {(ev["away"], ev["home"]): ev for ev in dl.sgo_live_scores(key)}
-    except Exception:
-        pass
-    return {}
 
 
 @st.fragment(run_every=60)
