@@ -494,6 +494,29 @@ def sgo_push_shared(api_key):
     return len(merged)
 
 
+def sgo_live_scores(api_key):
+    """Live/in-progress + just-finished scores from SportsGameOdds — the ESPN
+    fallback when their WAF bans us. Same shape as espn_live_scores.
+    5-min shared disk cache; ~1 object per live event."""
+    data = _get_json(SGO_EVENTS, "sgo_live.json", 5, params={
+        "leagueID": "NFL", "live": "true", "limit": 25},
+        extra_headers={"x-api-key": api_key})
+    out = []
+    for e in (data.get("data", []) if isinstance(data, dict) else []):
+        st = e.get("status") or {}
+        teams = e.get("teams") or {}
+        h, a = teams.get("home") or {}, teams.get("away") or {}
+        ha, aa = (h.get("names") or {}).get("short", "?"), (a.get("names") or {}).get("short", "?")
+        period = st.get("currentPeriodID") or ""
+        state = "post" if (st.get("completed") or st.get("ended")) else "in"
+        out.append({"label": f"{aa} @ {ha}", "away": aa, "home": ha,
+                    "a_score": int(a.get("score") or 0), "h_score": int(h.get("score") or 0),
+                    "state": state,
+                    "clock": "", "period": period,
+                    "detail": ("Final" if state == "post" else f"🔴 {period}".strip())})
+    return out
+
+
 def cached_sgo_lines():
     """Board lines from the shared payload (Turso/disk) — NO network, NO objects."""
     raw, _ = _sgo_board_raw()

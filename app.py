@@ -1903,11 +1903,20 @@ open_set = st.session_state.setdefault("open_games", {0})
 
 
 def _live_score_map():
-    """{(away, home): espn live event} — 60s disk cache, empty dict on failure."""
+    """{(away, home): live event} — ESPN first, SGO when ESPN is WAF-banned."""
     try:
-        return {(ev["away"], ev["home"]): ev for ev in dl.espn_live_scores(season, week)}
+        evs = dl.espn_live_scores(season, week)
+        if evs:
+            return {(ev["away"], ev["home"]): ev for ev in evs}
     except Exception:
-        return {}
+        pass
+    try:
+        key = dl.sgo_api_key()
+        if key:
+            return {(ev["away"], ev["home"]): ev for ev in dl.sgo_live_scores(key)}
+    except Exception:
+        pass
+    return {}
 
 
 @st.fragment(run_every=60)
