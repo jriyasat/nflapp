@@ -361,15 +361,15 @@ def _completed_rows(season, week):
         margin = float(g["result"])            # home margin
         actual_total = float(g["total"]) if pd.notna(g["total"]) else None
         # spread receipt
-        sp_pick, sp_badge = "—", ""
+        sp_pick_logo, sp_badge = "", "—"
         if ms is not None and mk_home is not None:
             edge_h = mk_home - ms              # >0: model likes home vs market
             if abs(edge_h) >= VALUE_EDGE_MIN:
                 pick_home = edge_h > 0
                 cover = margin + mk_home       # >0 home covers, <0 away covers
                 hit = (cover > 0) if pick_home else (cover < 0)
-                sp_badge = "➖ push" if cover == 0 else ("✅" if hit else "❌")
-                sp_pick = f"{home if pick_home else away} {sp_badge}"
+                sp_badge = "➖" if cover == 0 else ("✅" if hit else "❌")
+                sp_pick_logo = logo_url(home if pick_home else away)
         # total receipt
         tot_lean = "—"
         if mt is not None and kt is not None and actual_total is not None:
@@ -379,13 +379,14 @@ def _completed_rows(season, week):
                 hit = (actual_total > kt) if over else (actual_total < kt)
                 badge = "➖ push" if actual_total == kt else ("✅" if hit else "❌")
                 tot_lean = f"{'OVER' if over else 'UNDER'} {kt:.1f} {badge}"
+        winner = home if margin > 0 else (away if margin < 0 else "")
         rows.append({
-            "Away": logo_url(away),
-            "Home": logo_url(home),
             "Final": f"{away} {int(g['away_score'])} @ {home} {int(g['home_score'])}",
+            "Winner": logo_url(winner) if winner else "",
             "Model Line": fmt_spread(ms, home, away) if ms is not None else "—",
             "Closing Line": fmt_spread(mk_home, home, away) if mk_home is not None else "—",
-            "Spread pick": sp_pick,
+            "Spread pick": sp_pick_logo,
+            "ATS": sp_badge,
             "Total lean": tot_lean,
         })
     return rows
@@ -2037,8 +2038,8 @@ if not completed_games.empty:
         _cr = _completed_rows(int(season), int(week))
         if _cr:
             st.dataframe(pd.DataFrame(_cr), column_config={
-                "Away": st.column_config.ImageColumn("Away", width="small"),
-                "Home": st.column_config.ImageColumn("Home", width="small")},
+                "Winner": st.column_config.ImageColumn("Winner", width="small"),
+                "Spread pick": st.column_config.ImageColumn("Spread pick", width="small")},
                 hide_index=True, width="stretch")
             st.caption("Badges appear only where the model had a bettable lean (≥2 pts vs the "
                        "closing line — same bar as the ★/🟩 on the board above). Graded at the "
