@@ -180,6 +180,8 @@ def logo_img(t, size=24):
 def team_md(t, size=24):
     return f"{logo_img(t, size)}**{t}**"
 
+_ABBR_TO_NAME = {v: k for k, v in dl.TEAM_NAME_TO_ABBR.items()}
+
 def matchup_md(away, home, size=24):
     return f"{team_md(away, size)} @ {team_md(home, size)}"
 
@@ -696,9 +698,13 @@ def _live_body(season, week):
             badge = "✅ Final"
         else:
             badge = f"⏰ {ev['detail'] or 'upcoming'}"
-        st.markdown(f"{matchup_md(ev['away'], ev['home'], 22)} — {badge}"
-                    + (f"   **{ev['a_score']} – {ev['h_score']}**" if state != "pre" else ""),
-                    unsafe_allow_html=True)
+        if state != "pre":
+            score_line = (f"**{ev['a_score']}** {logo_img(ev['away'], 22)} {_ABBR_TO_NAME.get(ev['away'], ev['away'])}"
+                          f" @ **{ev['h_score']}** {logo_img(ev['home'], 22)} {_ABBR_TO_NAME.get(ev['home'], ev['home'])}")
+            st.markdown(f"{score_line} — {badge}", unsafe_allow_html=True)
+        else:
+            st.markdown(f"{matchup_md(ev['away'], ev['home'], 22)} — {badge}",
+                        unsafe_allow_html=True)
         margin = ev["h_score"] - ev["a_score"]
         notes = []
         if not pending.empty:
