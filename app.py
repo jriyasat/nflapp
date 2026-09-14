@@ -133,6 +133,11 @@ CONTACT_EMAIL = "jeff.riyasat@gmail.com"
 _LEVEL_RANK = {"user": 0, "paid": 1, "admin": 2}
 FEATURE_GATES = {"props": "paid", "sgp": "paid", "journal": "paid", "email_brief": "paid"}
 
+# ONE value threshold everywhere: ★ stars, green cells, ⚡ badges, Completed
+# receipts = exactly the Track Record bar (tracker.EDGE_MIN). "★ = the model
+# bets this." No second, looser number for users to reconcile.
+VALUE_EDGE_MIN = 2.0
+
 
 def gate(feature):
     return _LEVEL_RANK.get(LEVEL, 0) >= _LEVEL_RANK[FEATURE_GATES.get(feature, "admin")]
@@ -324,7 +329,7 @@ def _board_rows(season, week):
             "Game": f"{away} @ {home}",
             "Model Line": fmt_spread(ms, home, away) if ms is not None else "—",
             "Market Line": fmt_spread(mk, home, away) if mk is not None else "—",
-            "Edge": (f"{abs(edge):.1f} {home if edge > 0 else away}{' ★' if abs(edge) >= 1.5 else ''}"
+            "Edge": (f"{abs(edge):.1f} {home if edge > 0 else away}{' ★' if abs(edge) >= VALUE_EDGE_MIN else ''}"
                      if edge is not None else "—"),
             "Model Total": round(float(mt), 1) if mt is not None else None,
             "Market Total": round(float(kt), 1) if kt is not None else None,
@@ -338,7 +343,7 @@ def _board_rows(season, week):
 def _completed_rows(season, week):
     """Completed games: final score + model receipts, graded at the nflverse
     CLOSING line (same standard as Track Record). Badges only where the model
-    had a bettable lean (>=1.5 pts), matching the board's star/green rules."""
+    had a bettable lean (>=2.0 pts), matching the board's star/green rules."""
     wk = games[(games["season"] == season) & (games["game_type"] == "REG") &
                (games["week"] == week) & (games["result"].notna())].sort_values(["gameday", "gametime"])
     # honest receipts: each game's model line comes from an Elo that has NOT
@@ -359,7 +364,7 @@ def _completed_rows(season, week):
         sp_pick, sp_badge = "—", ""
         if ms is not None and mk_home is not None:
             edge_h = mk_home - ms              # >0: model likes home vs market
-            if abs(edge_h) >= 1.5:
+            if abs(edge_h) >= VALUE_EDGE_MIN:
                 pick_home = edge_h > 0
                 cover = margin + mk_home       # >0 home covers, <0 away covers
                 hit = (cover > 0) if pick_home else (cover < 0)
@@ -369,7 +374,7 @@ def _completed_rows(season, week):
         tot_lean = "—"
         if mt is not None and kt is not None and actual_total is not None:
             diff = float(mt) - kt
-            if abs(diff) >= 1.5:
+            if abs(diff) >= VALUE_EDGE_MIN:
                 over = diff > 0
                 hit = (actual_total > kt) if over else (actual_total < kt)
                 badge = "➖ push" if actual_total == kt else ("✅" if hit else "❌")
@@ -1034,8 +1039,7 @@ def help_page():
     st.subheader("💰 When is a bet suggested?")
     st.markdown("""
 - **Only when EV is positive** — the edge beats the book's cut (the vig). That's the whole game.
-- **≥1.5 pts** → the Edge card flips to **'value'**
-- **≥2 pts** → logged as an official model pick on the 📈 Track Record page and graded at the closing line
+- **≥2 pts** → the Edge card flips to **'value'**, the board shows ★, **and** it's logged as an official model pick on the 📈 Track Record page, graded at the closing line. One number, everywhere.
 - **Stake** → the ¼-Kelly column (a fraction of your bankroll)
 - **Everything else → NO BET.** Most games are no-bets. That's discipline, not a bug.
 """)
@@ -1481,9 +1485,9 @@ def lines_block(g, away, home, espn_o, books):
             "Total": f"{espn_o['over_under']:.1f}" if espn_o.get("over_under") else "-",
             "ML": f"{away} {fmt_ml(espn_o.get('away_ml'))} / {home} {fmt_ml(espn_o.get('home_ml'))}",
         })
-    # pinned 🤖 MODEL row: model spread + total next to the market, ⚡ when |edge| >= 1.5
+    # pinned 🤖 MODEL row: model spread + total next to the market, ⚡ when |edge| >= VALUE_EDGE_MIN
     edge = pred.get("edge_pts")
-    badge = " ⚡ VALUE" if edge is not None and abs(edge) >= 1.5 else ""
+    badge = " ⚡ VALUE" if edge is not None and abs(edge) >= VALUE_EDGE_MIN else ""
     side = home if (edge or 0) > 0 else away
     rows.insert(0, {
         "Book": f"🤖 MODEL{badge}",
@@ -1578,8 +1582,8 @@ def predictor_tab(g, away, home):
         edge = pred["edge_pts"]
         side = home if edge > 0 else away
         c3.metric("⚡ Edge", f"{abs(edge):.1f} {side}",
-                  "value" if abs(edge) >= 1.5 else "within noise",
-                  delta_color="normal" if abs(edge) >= 1.5 else "off")
+                  "value" if abs(edge) >= VALUE_EDGE_MIN else "within noise",
+                  delta_color="normal" if abs(edge) >= VALUE_EDGE_MIN else "off")
         if pred.get("model_total") is not None:
             gap = pred["model_total"] - pred["market_total"]
             lean = "UNDER" if gap < 0 else "OVER"
@@ -1882,7 +1886,7 @@ if _board:
         HILITE = "background-color: #7cffb2; color: #000000; font-weight: 700"
         s = pd.DataFrame("", index=df.index, columns=df.columns)
         s.loc[df["Edge"].astype(str).str.contains("★", regex=False), "Edge"] = HILITE
-        m = pd.to_numeric(df["Edge Total"], errors="coerce").abs() >= 1.5
+        m = pd.to_numeric(df["Edge Total"], errors="coerce").abs() >= VALUE_EDGE_MIN
         s.loc[m.fillna(False), "Edge Total"] = HILITE
         return s
 
@@ -1893,10 +1897,10 @@ if _board:
         "Market Total": st.column_config.NumberColumn("Market Total", format="%.1f"),
         "Edge Total": st.column_config.NumberColumn("Edge Total", format="%.1f")},
         hide_index=True, width="stretch")
-    st.caption("**★ = spread value** — the model disagrees with the books by ≥1.5 pts; **no ★ on any game "
-               "= no spread bet this week** · 🟩 green cell = bettable edge (≥1.5 pts) · **Edge Total** "
-               "negative = model leans UNDER, positive = OVER · click a column header to sort · hover the "
-               "table's top-right corner for search & CSV download.")
+    st.caption("**★ = the model bets this** — edge vs the books ≥2 pts, the exact bar the 📈 Track Record "
+               "is graded on; **no ★ on any game = no spread bet this week** · 🟩 green cell = bettable edge "
+               "(≥2 pts) · **Edge Total** negative = model leans UNDER, positive = OVER · click a column "
+               "header to sort · hover the table's top-right corner for search & CSV download.")
 
 # ---------------- main loop (lazy: only open games render — huge rerun win) ----------------
 open_set = st.session_state.setdefault("open_games", {0})
@@ -2036,7 +2040,7 @@ if not completed_games.empty:
                 "Away": st.column_config.ImageColumn("Away", width="small"),
                 "Home": st.column_config.ImageColumn("Home", width="small")},
                 hide_index=True, width="stretch")
-            st.caption("Badges appear only where the model had a bettable lean (≥1.5 pts vs the "
+            st.caption("Badges appear only where the model had a bettable lean (≥2 pts vs the "
                        "closing line — same bar as the ★/🟩 on the board above). Graded at the "
                        "nflverse **closing** line, same standard as 📈 Track Record. **Model line "
                        "= pre-game** (Elo rebuilt without that game's own result — no hindsight).")
