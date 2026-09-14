@@ -17,6 +17,7 @@
 | NFL Value Radar | 2e42c684b0b9 | */30 min, 8:00-24:00 | Spread + total edges ≥2.0 with re-alerts on ≥1-pt line moves (shows the move). Reads shared SGO cache (never spends objects) + ESPN fallback |
 | NFL Lines Warm (SGO → Turso) | 4b79a2913d68 | 6:00/12:00/18:00/23:00 ET | Pushes the SGO board (lines + player props) into the Turso `shared_cache` table with kickoff-freeze (started games keep pre-start lines). One fetch cycle for ALL environments (~64 objects/day, free-tier safe) |
 | NFL Edge keep-alive | 0627253ba560 | 8:05 + 20:05 daily | Pings /healthz; alerts only if cloud app is down |
+| NFL Weekly Picks Video | 2f4766c31049 | Thu 7:00 ET | Builds the week's picks video (75s 16:9 + 40s Short) in `~/videos/nfl-edge-weekly-picks` (HyperFrames template + edge-tts voiceover; zero odds-API spend — reads shared SGO cache), uploads both to YouTube UNLISTED, reports links to Telegram. YouTube OAuth: one-time setup in `scripts/youtube_upload.py` docstring (secrets/ there, never in git) |
 | Playoff build reminder | f32fe4ea0898 | one-shot 2026-12-01 | Remind Jeff to build POST support (week picker, journal/tracker grading, brief) — DECIDED: preseason skipped, pick'em shelved |
 
 ## Shared cache (single-fetcher, since 2026-09-13)
