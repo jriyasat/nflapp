@@ -662,7 +662,7 @@ if page == "📒 Bet Journal":
 
 # ---------------- live page ----------------
 def _live_body(season, week):
-    live = dl.espn_live_scores(season, week)
+    live = list(_live_score_map().values())  # ESPN first, SGO fallback when WAF-banned
     if not live:
         st.info("Live scores unavailable right now (ESPN may be rate-limiting). Try again shortly.")
         return

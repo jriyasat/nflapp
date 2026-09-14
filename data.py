@@ -503,17 +503,18 @@ def sgo_live_scores(api_key):
         extra_headers={"x-api-key": api_key})
     out = []
     for e in (data.get("data", []) if isinstance(data, dict) else []):
-        st = e.get("status") or {}
+        st_ = e.get("status") or {}
         teams = e.get("teams") or {}
         h, a = teams.get("home") or {}, teams.get("away") or {}
         ha, aa = (h.get("names") or {}).get("short", "?"), (a.get("names") or {}).get("short", "?")
-        period = st.get("currentPeriodID") or ""
-        state = "post" if (st.get("completed") or st.get("ended")) else "in"
+        period_raw = str(st_.get("currentPeriodID") or "").lower()   # "1q".."4q", "ot"
+        period = "OT" if "ot" in period_raw else (period_raw[0] if period_raw[:1].isdigit() else "")
+        state = "post" if (st_.get("completed") or st_.get("ended")) else "in"
         out.append({"label": f"{aa} @ {ha}", "away": aa, "home": ha,
                     "a_score": int(a.get("score") or 0), "h_score": int(h.get("score") or 0),
                     "state": state,
                     "clock": "", "period": period,
-                    "detail": ("Final" if state == "post" else f"🔴 {period}".strip())})
+                    "detail": ("Final" if state == "post" else f"🔴 Q{period}".strip())})
     return out
 
 
