@@ -15,7 +15,6 @@ os.environ.pop("PYTHONPATH", None)
 import pandas as pd
 
 import data as dl
-import db
 
 ESPN_SUMMARY = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary"
 SNAP = os.path.join(dl.CACHE, "snap_inactives.json")
