@@ -299,11 +299,26 @@ try:
 except Exception:
     props_api_key = api_key
 def _lines_updated_at():
+    # primary: the Turso single-fetcher payload (what Cloud actually serves —
+    # its disk caches are usually empty, so the old disk-only check showed "—")
+    try:
+        _, ts = dl._sgo_board_raw()
+        if ts:
+            return ts
+    except Exception:
+        pass
     import glob as _g
     fs = _g.glob(os.path.join(dl.CACHE, "sgo_odds.json")) + _g.glob(os.path.join(dl.CACHE, "odds_api.json")) \
         + [f for f in _g.glob(os.path.join(dl.CACHE, "espn_*.json"))
            if not os.path.basename(f).startswith(("espn_live", "espn_sb", "espn_sum"))]
     return max((os.path.getmtime(f) for f in fs), default=None)
+
+
+def _et(ts):
+    """Epoch -> 'Sep 20, 4:25 PM ET'. Server-local formatting showed UTC on
+    Streamlit Cloud ('it does local'); everything user-facing is ET now."""
+    from zoneinfo import ZoneInfo
+    return pd.Timestamp.fromtimestamp(ts, tz=ZoneInfo("America/New_York")).strftime("%b %-d, %-I:%M %p ET")
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -313,7 +328,7 @@ def _board_rows(season, week):
     wk = games[(games["season"] == season) & (games["game_type"] == "REG") &
                (games["week"] == week) & (games["result"].isna())].sort_values(["gameday", "gametime"])
     ts = _lines_updated_at()
-    updated = pd.Timestamp.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "—"
+    updated = _et(ts) if ts else "—"
     rows = []
     for _, g in wk.iterrows():
         away, home = g["away_team"], g["home_team"]
@@ -456,6 +471,11 @@ except Exception:
     nv_injuries, nv_status = {}, "unavailable"
 
 st.sidebar.markdown(f"**{len(week_games)} games** loaded • injuries for {len(injuries)} teams")
+_games_mt = os.path.getmtime(os.path.join(dl.CACHE, "games.csv")) \
+    if os.path.exists(os.path.join(dl.CACHE, "games.csv")) else None
+_lines_ts = _lines_updated_at()
+st.sidebar.caption(f"🕐 Scores updated {_et(_games_mt) if _games_mt else '—'} · "
+                   f"Lines updated {_et(_lines_ts) if _lines_ts else '—'}")
 views = (["Games", "🔴 Live", "📒 Bet Journal", "📈 Track Record", "🏆 Pick'em", "📰 News", "🏅 Standings",
           "📊 Power Rankings", "❓ How It Works", "📜 Terms", "⚙️ Settings"] + (["👥 Users"] if IS_ADMIN else []))
 _qp = st.query_params.get("page")
@@ -1451,10 +1471,23 @@ def track_record_page():
     show = picks.copy()
     show["profit"] = show["profit"].apply(lambda v: f"{float(v):+.2f}" if pd.notna(v) and str(v) != "" else "…")
     show["closing_line"] = show["closing_line"].apply(lambda v: f"{float(v):+.1f}" if pd.notna(v) and str(v) != "" else "…")
+    # 1 decimal everywhere — raw floats were rendering full precision on mobile
+    for _c in ("model_val", "market_val_log", "edge_log"):
+        show[_c] = show[_c].apply(lambda v: f"{float(v):+.1f}" if pd.notna(v) and str(v) != "" else "…")
     show["clv"] = picks.apply(_pick_clv, axis=1).apply(lambda v: f"{v:+.2f}" if pd.notna(v) else "…")
     show.insert(0, "Logo", show["side"].map(logo_url))
-    st.dataframe(show[["Logo", "logged_at", "game", "pick_type", "side", "model_val",
-                       "market_val_log", "edge_log", "closing_line", "clv", "grade", "profit"]].iloc[::-1],
+    _cols = ["Logo", "logged_at", "game", "pick_type", "side", "model_val",
+             "market_val_log", "edge_log", "closing_line", "clv", "grade", "profit"]
+
+    def _grade_row(row):
+        # whole-row receipt color: green = won, red = lost (translucent so it
+        # reads on both dark and light themes, phone included)
+        g = str(row.get("grade", "")).lower()
+        bg = {"won": "background-color: rgba(22,163,74,0.28)",
+              "lost": "background-color: rgba(220,38,38,0.28)"}.get(g, "")
+        return [bg] * len(row)
+
+    st.dataframe(show[_cols].iloc[::-1].style.apply(_grade_row, axis=1),
                  column_config=LOGO_CFG, hide_index=True, width="stretch")
 
 if page == "📈 Track Record":

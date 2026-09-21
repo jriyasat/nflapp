@@ -13,6 +13,7 @@
 |---|---|---|---|
 | NFL Morning Brief | 7062a432915e | daily 8:00 ET | Watchdog digest: line movers, injury escalations, model edges ≥2pts, totals leans, wind alerts, Monday recap edition. Silent when nothing changed. Logs picks to Turso + line history |
 | NFL Inactives Watch | 98404b02208d | */15 min, 11:00-23:00 Thu/Sat/Sun/Mon | Gameday inactives ~90min pre-kickoff (ESPN summary endpoint), deduped per game |
+| NFL Injury Report Watch | 1a3ff0e14c19 | */30 min, 8:00-21:00 Wed/Thu/Fri/Sat/Sun/Mon (off Tue) | Official-report designations (Q/D/Out) as they drop; widened 2026-09-20 from Wed-Fri-only — MNF teams' Saturday reports never alerted (Rams W2 went unannounced) |
 | NFL Props Warm (Daily) | c34350045782 | daily 10:00 ET | Warms shared prop-line cache for all games within 4 days; fetches only missing/stale games + refreshes games within 36h of kickoff (quota-safe on dedicated ODDS_API_KEY_PROPS). Replaced the old Mon+Sat pair on 2026-09-10 |
 | NFL Value Radar | 2e42c684b0b9 | */30 min, 8:00-24:00 | Spread + total edges ≥2.0 with re-alerts on ≥1-pt line moves (shows the move). Reads shared SGO cache (never spends objects) + ESPN fallback |
 | NFL Lines Warm (SGO → Turso) | 4b79a2913d68 | 6:00/12:00/18:00/23:00 ET | Pushes the SGO board (lines + player props) into the Turso `shared_cache` table with kickoff-freeze (started games keep pre-start lines). One fetch cycle for ALL environments (~64 objects/day, free-tier safe) |

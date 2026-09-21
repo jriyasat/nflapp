@@ -51,41 +51,49 @@ def load_games():
     memory by file mtime so repeat calls in one process are free.
     Derived ATS/O-U columns added."""
     path = os.path.join(CACHE, "games.csv")
-    if not _fresh(path, GAMES_CACHE_H * 3600):
+
+    def _download():
         r = requests.get(GAMES_URL, timeout=60)
         r.raise_for_status()
         tmp = path + ".tmp"  # atomic: concurrent readers never see a partial file
         with open(tmp, "wb") as f:
             f.write(r.content)
         os.replace(tmp, path)
+
+    if not _fresh(path, GAMES_CACHE_H * 3600):
+        _download()
     mt = os.path.getmtime(path)
-    if _MEMO.get("games_mt") == mt:
-        return _MEMO["games"]
-    df = pd.read_csv(path, low_memory=False)
+    df = _MEMO["games"] if _MEMO.get("games_mt") == mt else None
     # auto-refresh stale results: nflverse posts ~1h after finals. If any game is
-    # >4h past kickoff with no result and this cache is >1h old, refetch once so
-    # finished games move to Completed without waiting out the 12h TTL.
-    if time.time() - os.path.getmtime(path) > 3600:
+    # >4h past kickoff with no result and the cache is >1h old, refetch (throttled
+    # to 1 attempt/hour) so finals reach Completed without waiting out the 12h TTL.
+    # This runs BEFORE the memo early-return — previously it sat behind it, was
+    # dead code in steady state, and finals lagged up to 12h on long-lived
+    # (cloud) processes.
+    if time.time() - mt > 3600 and time.time() - _MEMO.get("games_refetch_ts", 0) > 3600:
         try:
-            _gd = pd.to_datetime(df["gameday"], errors="coerce")
-            _gt = df["gametime"].fillna("0:0").astype(str).str.split(":", expand=True)
+            src = df if df is not None else pd.read_csv(path, low_memory=False)
+            _gd = pd.to_datetime(src["gameday"], errors="coerce")
+            _gt = src["gametime"].fillna("0:0").astype(str).str.split(":", expand=True)
             _ko = _gd + pd.to_timedelta(pd.to_numeric(_gt[0], errors="coerce").fillna(0), unit="h") \
                       + pd.to_timedelta(pd.to_numeric(_gt[1], errors="coerce").fillna(0), unit="m")
-            _overdue = bool((df["result"].isna() & _gd.notna()
+            _overdue = bool((src["result"].isna() & _gd.notna()
                              & (_ko < pd.Timestamp.now() - pd.Timedelta(hours=4))).any())
         except Exception:
             _overdue = False
         if _overdue:
+            _MEMO["games_refetch_ts"] = time.time()
             try:
-                r = requests.get(GAMES_URL, timeout=60)
-                r.raise_for_status()
-                tmp = path + ".tmp"
-                with open(tmp, "wb") as f:
-                    f.write(r.content)
-                os.replace(tmp, path)
-                df = pd.read_csv(path, low_memory=False)
+                _download()
+                mt = os.path.getmtime(path)
+                df = None  # force re-read + re-derive below
             except Exception:
-                pass  # serve what we have — try again next hour
+                pass  # serve what we have — try again in an hour
+    if df is not None:
+        return df
+    if _MEMO.get("games_mt") == mt:
+        return _MEMO["games"]
+    df = pd.read_csv(path, low_memory=False)
     # nflverse calls the Rams "LA"; the rest of the app (divisions, logos, ESPN) uses "LAR".
     # Without this the Rams silently miss standings, rankings, injury adj, and logos.
     df[["home_team", "away_team"]] = df[["home_team", "away_team"]].replace({"LA": "LAR"})
@@ -759,8 +767,14 @@ def nflverse_injuries(season=None, max_age_h=1):
     games = load_games()
     if season is None:
         season = int(games.loc[games["result"].isna(), "season"].max())
+    # Never serve last season's file once the current season has started — a failed
+    # fetch must surface as "unavailable", not as ancient mislabeled data (the 2026
+    # file 404'd once mid-week and the app briefly showed 2025 playoff injuries).
+    sg = games[games["season"] == season]
+    started = bool(sg["result"].notna().any()) or \
+        bool((pd.to_datetime(sg["gameday"], errors="coerce") <= pd.Timestamp.now()).any())
     df = None
-    for s in (season, season - 1):
+    for s in ((season,) if started else (season, season - 1)):
         path = os.path.join(CACHE, f"nflverse_injuries_{s}.csv")
         if not _fresh(path, max_age_h * 3600):
             try:
