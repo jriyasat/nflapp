@@ -45,6 +45,7 @@ Turso table `shared_cache(key, payload, updated_at-epoch)`. Writer = lines-warm 
 
 ## Rules
 
+- **This directory stays on `main`.** Every cron script and the 8501 app run from `~/nfl-edge` — checking out another branch here breaks all alerts/email within the hour (happened 2026-09-21: v2's data.py dropped `cached_sgo_lines` → Value Radar crash-looped, Morning Brief died on `KeyError: 'n'`). V2/experimental work runs in its own checkout (`git worktree add ~/nfl-edge-v2 v2`) or the :8503 Docker container — never in this directory.
 - **`main` is always deployable.** No push without the verification pass.
 - **Additive-only schema changes.** New columns/tables yes; drops/renames no. Migrations run on connect (`db._ensure_user_cols` pattern).
 - **Secrets live in exactly two places:** `.streamlit/secrets.toml` (local, gitignored) and the Streamlit Cloud secrets dashboard. Never in git.
