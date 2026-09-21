@@ -18,12 +18,18 @@ STAT_BY_MARKET = {
     "player_rush_yds": "rushing_yards",
     "player_reception_yds": "receiving_yards",
     "player_receptions": "receptions",
+    "player_pass_td": "passing_tds",
+    "player_rush_td": "rushing_tds",
+    "player_rec_td": "receiving_tds",
 }
 POS_BY_MARKET = {
     "player_pass_yds": "QB",
     "player_rush_yds": "RB",
     "player_reception_yds": "WR/TE",
     "player_receptions": "WR/TE",
+    "player_pass_td": "QB",
+    "player_rush_td": "RB",
+    "player_rec_td": "WR/TE",
 }
 USAGE_COL = {"QB": "attempts", "RB": "carries", "WR/TE": "targets"}
 
@@ -79,7 +85,9 @@ def _norm(name):
 
 
 PROJ_STAT = {"proj_pass": "passing_yards", "proj_rush": "rushing_yards",
-             "proj_rec_yds": "receiving_yards", "proj_rec": "receptions"}
+             "proj_rec_yds": "receiving_yards", "proj_rec": "receptions",
+             "proj_pass_td": "passing_tds", "proj_rush_td": "rushing_tds",
+             "proj_rec_td": "receiving_tds"}
 
 
 def hit_rate(ps, player_id, proj_col, line, last_n=10):
@@ -165,6 +173,9 @@ def project_game(ps, defs, team, opponent, per_pos=2, injuries=None, team_line=N
                 "proj_rush": proj_rush,
                 "proj_rec_yds": round(_wavg(g["receiving_yards"].fillna(0).tolist(), w) * mult * boost, 1) if ppos in ("WR", "TE", "RB") else None,
                 "proj_rec": round(_wavg(g["receptions"].fillna(0).tolist(), w) * mult * boost, 1) if ppos in ("WR", "TE", "RB") else None,
+                "proj_pass_td": round(_wavg(g["passing_tds"].fillna(0).tolist(), w) * (defs["QB"].get(opponent, 1.0) if ppos == "QB" else 1), 1) if ppos == "QB" else None,
+                "proj_rush_td": round(_wavg(g["rushing_tds"].fillna(0).tolist(), w) * defs["RB"].get(opponent, 1.0) * boost, 1) if ppos == "RB" else None,
+                "proj_rec_td": round(_wavg(g["receiving_tds"].fillna(0).tolist(), w) * mult * boost, 1) if ppos in ("WR", "TE", "RB") else None,
                 "opp_mult": round(mult, 3),
                 "flag": st or "",
                 "boost": round(boost, 2) if boost != 1.0 else None,
@@ -179,6 +190,9 @@ MARKET_TO_PROJ = {
     "player_rush_yds": "proj_rush",
     "player_reception_yds": "proj_rec_yds",
     "player_receptions": "proj_rec",
+    "player_pass_td": "proj_pass_td",
+    "player_rush_td": "proj_rush_td",
+    "player_rec_td": "proj_rec_td",
 }
 
 

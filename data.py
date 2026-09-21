@@ -384,7 +384,9 @@ def _sgo_event_books(e):
 
 
 SGO_PROP_STATS = {"passing_yards": "player_pass_yds", "rushing_yards": "player_rush_yds",
-                  "receiving_yards": "player_reception_yds", "receptions": "player_receptions"}
+                  "receiving_yards": "player_reception_yds", "receptions": "player_receptions",
+                  "passing_touchdowns": "player_pass_td", "rushing_touchdowns": "player_rush_td",
+                  "receiving_touchdowns": "player_rec_td", "touchdowns": "player_touchdowns"}
 
 
 def _sgo_event_props(e):
@@ -516,9 +518,6 @@ def sgo_live_scores(api_key):
                     "clock": "", "period": period,
                     "detail": ("Final" if state == "post" else f"🔴 Q{period}".strip())})
     return out
-
-
-def cached_sgo_lines():
     """Board lines from the shared payload (Turso/disk) — NO network, NO objects."""
     raw, _ = _sgo_board_raw()
     if not raw:
@@ -578,6 +577,7 @@ PLAYER_STATS_URL = ("https://github.com/nflverse/nflverse-data/releases/download
 _PS_COLS = ["player_id", "player_display_name", "position", "position_group",
             "team", "season", "week", "season_type", "opponent_team",
             "attempts", "passing_yards", "passing_tds", "carries", "rushing_yards",
+            "rushing_tds",  # props_model proj_rush_td (RB) — missing col = KeyError on any RB projection
             "receptions", "targets", "receiving_yards", "receiving_tds"]
 
 
