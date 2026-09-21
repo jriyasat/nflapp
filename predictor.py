@@ -9,15 +9,19 @@ Philosophy (validated by backtests on 2021-2025 closing lines):
 """
 
 import math
+import os
 
 import numpy as np
 import pandas as pd
+
+from ypp_model import YPPModel
 
 K, HFA, REGRESS, START = 20.0, 48.0, 1 / 3, 1500.0
 MARGIN_SD = 13.3          # historical SD of NFL margin vs expectation
 TOTAL_SD = 13.5           # SD of game total vs expectation
 MAX_ADJ = 2.5             # cap on total adjustment, points
 MAX_TOTAL_ADJ = 3.5
+USE_YPP = os.environ.get('USE_YPP', 'false').lower() == 'true'
 
 # Totals adjustments (validated, scripts/backtest_totals.py 2021-25)
 REF_ADJ = {"Shawn Hochuli": -1.0, "Ron Torbert": -0.5, "Shawn Smith": -0.5}
@@ -127,6 +131,15 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
     away, home = game_row["away_team"], game_row["home_team"]
     p_elo, elo_spread = elo.predict(away, home)
 
+    if USE_YPP:
+        try:
+            ypp = YPPModel()
+            ypp_spread = ypp.predict_spread(away, home)
+        except Exception:
+            ypp_spread = elo_spread
+    else:
+        ypp_spread = elo_spread
+
     market = consensus(books)
     if not market.get("n_books") and espn:
         ph, pa = american_to_prob(espn.get("home_ml")), american_to_prob(espn.get("away_ml"))
@@ -175,17 +188,17 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
         # blend: 85% market + 15% elo, then adjustments.
         # NOTE: total_adj is on the MARGIN axis (positive = toward home) while
         # model_spread is on the spread axis (negative = home favored) -> SUBTRACT.
-        model_spread = 0.85 * base_spread + 0.15 * elo_spread - total_adj
+        model_spread = 0.85 * base_spread + 0.15 * ypp_spread - total_adj
         p_market = market["p_home"]
     else:
-        model_spread = elo_spread - total_adj
+        model_spread = ypp_spread - total_adj
         p_market = None
 
     # model spread -> cover prob for each side (margin ~ Normal(-spread, SD))
     model_margin = -model_spread  # positive = home wins by X
     out = {
         "mode": mode, "adjustments": adjs,
-        "p_elo": p_elo, "elo_spread": elo_spread,
+        "p_elo": p_elo, "elo_spread": elo_spread, "ypp_spread": ypp_spread,
         "p_market": p_market, "n_books": market.get("n_books", 0),
         "market_spread": market.get("home_spread"), "market_total": market.get("total"),
         "model_spread": model_spread, "model_margin": model_margin,
