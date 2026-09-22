@@ -129,8 +129,11 @@ def run_backtest():
                 parts = line.strip().split()
                 if len(parts) >= 7 and parts[0] in ["rec_yds", "rec", "rush", "pass"]:
                     market = parts[0]
-                    mae_v2 = float(parts[5])
-                    metrics[market] = {"mae": mae_v2}
+                    try:
+                        mae_v2 = float(parts[4])  # MAE v2 is at index 4
+                        metrics[market] = {"mae": mae_v2}
+                    except (ValueError, IndexError):
+                        continue
         
         # Parse hit-rate section (7.5% screen)
         hit_rate_section = False
@@ -146,9 +149,12 @@ def run_backtest():
                 parts = line.strip().split()
                 if len(parts) >= 4 and parts[0] in ["rec_yds", "rec", "rush", "pass"]:
                     market = parts[0]
-                    hit_rate = float(parts[3].replace("%", ""))
-                    if market in metrics:
-                        metrics[market]["hit_rate"] = hit_rate
+                    try:
+                        hit_rate = float(parts[3].replace("%", ""))
+                        if market in metrics:
+                            metrics[market]["hit_rate"] = hit_rate
+                    except (ValueError, IndexError):
+                        continue
         
         return {"output": output, "metrics": metrics}
     except Exception as e:
