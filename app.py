@@ -1892,9 +1892,9 @@ def sgp_tab(g, away, home):
             st.session_state[f"props_{away}_{home}"] = cached
             st.session_state[f"props_ts_{away}_{home}"] = ts
     if not lines:
-        st.info("No prop lines cached for this game — lines auto-load Mon (TNF) & Sat (full slate), "
-                "or grab them now in the 🎰 Props tab (~4 API credits). "
-                "SGP combos are built from those lines.")
+        st.info("No prop lines posted for this game yet — books hang Thursday-game props "
+                "Mon–Tue and the Sunday slate Thu–Sat. Games light up here as lines post "
+                "(auto-loads with the slate; or grab a game now in the 🎰 Props tab).")
         return
     key = (away, home)
     pred = pr.predict_game(g, elo, books_by_abbr.get(key), espn_odds.get(key), nv_injuries)
