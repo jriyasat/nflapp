@@ -9,6 +9,25 @@ Method (transparent v1):
 
 
 
+
+import os, json
+
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config/model_weights.json")
+try:
+    with open(CONFIG_PATH) as f:
+        CONFIG = json.load(f)
+except Exception:
+    CONFIG = {}
+
+snap_share_weight = CONFIG.get("snap_share_weight", 1.0)
+target_share_weight = CONFIG.get("target_share_weight", 0.0)
+ryoe_multiplier = CONFIG.get("ryoe_multiplier", 1.0)
+separation_multiplier = CONFIG.get("separation_multiplier", 1.0)
+cushion_multiplier = CONFIG.get("cushion_multiplier", 1.0)
+pass_volume_factor = CONFIG.get("pass_volume_factor", 1.0)
+rush_volume_factor = CONFIG.get("rush_volume_factor", 1.0)
+ypp_weight = CONFIG.get("ypp_weight", 0.85)
+elo_weight = CONFIG.get("elo_weight", 0.15)
 HALFLIFE = 6.0
 MIN_GAMES = {"QB": 4, "RB": 4, "WR": 4, "TE": 4}
 SHRINK = 0.5
@@ -152,9 +171,9 @@ def project_game(ps, defs, team, opponent, per_pos=2, injuries=None, team_line=N
         sub = reg_with_snaps[reg_with_snaps["position"].isin(grp)]
         # define usage per week based on snap share
         if pos == "RB":
-            sub["usage_week"] = sub["snap_share"] * sub["team_rush_att"]
+            sub["usage_week"] = sub["snap_share"] * sub["team_rush_att"] * rush_volume_factor
         else:  # QB, WR, TE
-            sub["usage_week"] = sub["snap_share"] * sub["team_pass_att"]
+            sub["usage_week"] = sub["snap_share"] * sub["team_pass_att"] * pass_volume_factor
         # compute weighted average usage per player (exponential weighting)
         usage_dict = {}
         for (pid, name, ppos), g in sub.groupby(["player_id", "player_display_name", "position"]):

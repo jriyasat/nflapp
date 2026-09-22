@@ -185,9 +185,9 @@ def load_snaps(years=None):
 # ----------------------------------------------------------------------
 
 NGS_URLS = {
-    "passing": "https://github.com/nflverse/nflverse-data/releases/download/nextgen_stats/ngs_{year}_passing.csv",
-    "rushing": "https://github.com/nflverse/nflverse-data/releases/download/nextgen_stats/ngs_{year}_rushing.csv",
-    "receiving": "https://github.com/nflverse/nflverse-data/releases/download/nextgen_stats/ngs_{year}_receiving.csv",
+    "passing": "https://github.com/nflverse/nflverse-data/releases/download/nextgen_stats/ngs_{year}_passing.csv.gz",
+    "rushing": "https://github.com/nflverse/nflverse-data/releases/download/nextgen_stats/ngs_{year}_rushing.csv.gz",
+    "receiving": "https://github.com/nflverse/nflverse-data/releases/download/nextgen_stats/ngs_{year}_receiving.csv.gz",
 }
 NGS_CACHE_H = 12
 
@@ -209,7 +209,7 @@ def load_ngs(years=None, stat_type="passing"):
     
     frames = []
     for yr in years:
-        raw_path = os.path.join(CACHE, f"raw_ngs_{stat_type}_{yr}.csv")
+        raw_path = os.path.join(CACHE, f"raw_ngs_{stat_type}_{yr}.csv.gz")
         agg_path = os.path.join(CACHE, f"agg_ngs_{stat_type}_{yr}.csv")
         
         if not _fresh(raw_path, NGS_CACHE_H * 3600):
@@ -224,7 +224,7 @@ def load_ngs(years=None, stat_type="passing"):
             frames.append(df)
             continue
         
-        raw = pd.read_csv(raw_path, low_memory=False)
+        raw = pd.read_csv(raw_path, compression='gzip', low_memory=False)
         # Keep core columns
         keep = ["player_id", "player_display_name", "team", "season", "week"]
         if stat_type == "rushing":
