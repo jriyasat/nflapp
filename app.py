@@ -332,7 +332,7 @@ def _board_rows(season, week):
             "Model Line": fmt_spread(ms, home, away) if ms is not None else "—",
             "Market Line": fmt_spread(mk, home, away) if mk is not None else "—",
             "Edge": (f"{abs(edge):.1f} {home if edge > 0 else away}{' ★' if abs(edge) >= VALUE_EDGE_MIN else ''}"
-                     if edge is not None else "—"),
+                     if edge is not None and pred.get("market_src") == "books" else "—"),
             "Model Total": round(float(mt), 1) if mt is not None else None,
             "Market Total": round(float(kt), 1) if kt is not None else None,
             "Edge Total": round(float(mt - kt), 1) if mt is not None and kt is not None else None,

@@ -141,10 +141,12 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
         ypp_spread = elo_spread
 
     market = consensus(books)
+    market_src = "books" if market.get("n_books") else None
     if not market.get("n_books") and espn:
         ph, pa = american_to_prob(espn.get("home_ml")), american_to_prob(espn.get("away_ml"))
         if ph and pa:
             market = {"p_home": devig(ph, pa), "n_books": 1}
+            market_src = "espn_ml"
         if espn.get("over_under"):
             market["total"] = espn["over_under"]
 
@@ -153,6 +155,7 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
         sp_home = -float(game_row["spread_line"])
         logit = (sp_home - elo._b) / elo._a
         market = {"p_home": 1 / (1 + math.exp(-logit)), "home_spread": sp_home, "n_books": 0}
+        market_src = "nflverse"
         if pd.notna(game_row.get("total_line")):
             market["total"] = float(game_row["total_line"])
 
@@ -185,7 +188,7 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
             # derive spread from de-vigged prob via elo-fitted map
             pc = min(max(market["p_home"], 0.02), 0.98)
             base_spread = elo._a * math.log(pc / (1 - pc)) + elo._b
-        # blend: 85% market + 15% elo, then adjustments.
+        # blend: 85% market + 15% ypp/elo, then adjustments.
         # NOTE: total_adj is on the MARGIN axis (positive = toward home) while
         # model_spread is on the spread axis (negative = home favored) -> SUBTRACT.
         model_spread = 0.85 * base_spread + 0.15 * ypp_spread - total_adj
@@ -199,7 +202,7 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
     out = {
         "mode": mode, "adjustments": adjs,
         "p_elo": p_elo, "elo_spread": elo_spread, "ypp_spread": ypp_spread,
-        "p_market": p_market, "n_books": market.get("n_books", 0),
+        "p_market": p_market, "n_books": market.get("n_books", 0), "market_src": market_src,
         "market_spread": market.get("home_spread"), "market_total": market.get("total"),
         "model_spread": model_spread, "model_margin": model_margin,
         "angles": [],
@@ -212,7 +215,7 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
         for side, p in (("home", p_home_cover), ("away", 1 - p_home_cover)):
             ev = p * (100 / 110) - (1 - p)
             b = 100 / 110
-            kelly = max((b * p - (1 - p)) / b, 0) / 4  # quarter kelly
+            kelly = max((b * p - (1 - p)) / b,133) / 4  # quarter kelly
             out[f"ev_{side}"] = ev
             out[f"kelly_{side}"] = kelly
         if market["home_spread"] <= -7:

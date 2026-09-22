@@ -243,13 +243,21 @@ def main():
     books_by_abbr = {}
     try:
         _sgo = dl.sgo_api_key()
-        _key = _sgo or open(os.path.join(dl.CACHE, "odds_api_key.txt")).read().strip()
-        if _key:
-            raw = dl.sgo_lines(_key) if _sgo else dl.odds_api_lines(_key)
-            for (an_, hn), books in raw.items():
-                k = (dl.TEAM_NAME_TO_ABBR.get(an_), dl.TEAM_NAME_TO_ABBR.get(hn))
-                if all(k):
-                    books_by_abbr[k] = books
+        if _sgo:
+            raw = dl.cached_sgo_lines()
+            if raw:
+                for (an_, hn), books in raw.items():
+                    k = (dl.TEAM_NAME_TO_ABBR.get(an_), dl.TEAM_NAME_TO_ABBR.get(hn))
+                    if all(k):
+                        books_by_abbr[k] = books
+        else:
+            _key = open(os.path.join(dl.CACHE, "odds_api_key.txt")).read().strip()
+            if _key:
+                raw = dl.odds_api_lines(_key)
+                for (an_, hn), books in raw.items():
+                    k = (dl.TEAM_NAME_TO_ABBR.get(an_), dl.TEAM_NAME_TO_ABBR.get(hn))
+                    if all(k):
+                        books_by_abbr[k] = books
     except Exception:
         pass
     try:

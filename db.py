@@ -25,7 +25,7 @@ _BETS_COLS = ["id", "user", "date", "season", "week", "game", "bet_type",
               "selection", "line", "odds", "stake", "book", "status", "profit", "clv"]
 _PICKS_COLS = ["id", "logged_at", "season", "week", "game", "pick_type", "side",
                "model_val", "market_val_log", "edge_log", "p_cover_log",
-               "closing_line", "grade", "profit"]
+               "closing_line", "grade", "profit", "flag"]
 
 _TURSO_CLIENT = None
 _TURSO_SCHEMA_DONE = False
@@ -147,16 +147,10 @@ def _ensure_user_cols(conn):
                      ("bankroll", "REAL"), ("unit", "REAL")):
         if col not in cols:
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
-
-
-# ---------------- per-user alert preferences (matrix: alert x channel) ----------------
-ALERT_TYPES = {"brief": "☀️ Morning Brief (8 AM)",
-               "radar": "🚨 Value Radar (line moves)",
-               "inactives": "🚫 Gameday Inactives",
-               "injury": "🏥 Injury Report Watch",
-               "propscan": "🎯 Prop Scan (Thursday)"}
-ALERT_CHANNELS = ("off", "telegram", "email", "both")
-
+    pcols = [r[1] for r in conn.execute("PRAGMA table_info(predictions)").fetchall()]
+    if "flag" not in pcols:
+        # marks picks excluded from the record (data-quality, e.g. fallback-line logging)
+        conn.execute("ALTER TABLE predictions ADD COLUMN flag TEXT")
 
 def _default_alert_prefs(email_enabled, telegram_enabled):
     """Mirror pre-matrix behavior: brief + inactives on whichever channels were

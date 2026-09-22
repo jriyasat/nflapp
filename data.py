@@ -458,7 +458,17 @@ def _sgo_board_raw():
         except Exception:
             pass
     return None, None
-
+def cached_sgo_lines():
+    """Board lines from the shared payload (Turso/disk) — NO network, NO objects."""
+    raw, _ = _sgo_board_raw()
+    if not raw:
+        return None
+    out = {}
+    for e in (raw.get("data", []) if isinstance(raw, dict) else []):
+        parsed = _sgo_event_books(e)
+        if parsed:
+            out[parsed[0]] = parsed[1]
+    return out
 
 def sgo_push_shared(api_key):
     """WRITER (single-fetcher): fetch the SGO board (2h TTL) and push a
