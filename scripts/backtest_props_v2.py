@@ -25,8 +25,9 @@ import pandas as pd
 
 sys.path.insert(0, "/app")
 import data as dl
+import nflverse_extra
 
-SEASONS_ALL = (2023,)
+SEASONS_ALL = (2021, 2022, 2023, 2024, 2025)
 EVAL_FROM = 2023
 MAX_WEEKS = 5  # limit for quick test
 HL = 6.0
@@ -68,7 +69,15 @@ def main():
         team_pass_att=("attempts", "sum"), team_rush_att=("carries", "sum"),
         team_targets=("targets", "sum"))
     w = w.merge(tw, on=["season", "week", "team"], how="left")
-    w["share_t"] = np.where(w["team_targets"] > 0, w["targets"] / w["team_targets"], 0.0)
+    # ---------------- snap counts ----------------
+    snaps_df = nflverse_extra.load_snaps(years=SEASONS_ALL)
+    snaps_df["nname"] = snaps_df["player_display_name"].map(norm_name)
+    w["nname"] = w["player_display_name"].map(norm_name)
+    w = w.merge(snaps_df[["season", "week", "team", "nname", "offense_pct"]],
+                on=["season", "week", "team", "nname"], how="left")
+    matched = w["offense_pct"].notna().mean()
+    print(f"snap merge rate: {matched*100:.0f}% of player-weeks")
+    w["share_t"] = (w["offense_pct"] / 100).fillna(0.0)
     w["share_c"] = np.where(w["team_rush_att"] > 0, w["carries"] / w["team_rush_att"], 0.0)
     # per-game efficiencies (0-safe)
     w["ypt"] = np.where(w["targets"] > 0, w["receiving_yards"] / w["targets"], np.nan)
@@ -122,23 +131,6 @@ def main():
         w = w.merge(of.rename(columns={"opp_mult": f"opp_{grp}"}),
                     left_on=["opponent_team", "season", "week"],
                     right_on=["def_team", "season", "week"], how="left").drop(columns=["def_team"])
-
-    # ---------------- snap counts ----------------
-    snaps = []
-    for s in SEASONS_ALL:
-        path = os.path.join(dl.CACHE, f"snap_counts_{s}.csv")
-        if os.path.exists(path):
-            sc = pd.read_csv(path, low_memory=False)
-            sc = sc[["season", "week", "team", "player", "offense_pct"]].copy()
-            sc["nname"] = sc["player"].map(norm_name)
-            snaps.append(sc)
-    snaps = pd.concat(snaps, ignore_index=True)
-    snaps["offense_pct"] = pd.to_numeric(snaps["offense_pct"], errors="coerce")
-    w["nname"] = w["player_display_name"].map(norm_name)
-    w = w.merge(snaps[["season", "week", "team", "nname", "offense_pct"]],
-                on=["season", "week", "team", "nname"], how="left")
-    matched = w["offense_pct"].notna().mean()
-    print(f"snap merge rate: {matched*100:.0f}% of player-weeks")
 
     # ---------------- point-in-time player features ----------------
     feat_cols = ["share_t", "share_c", "ypt", "catch_rate", "ypc", "ypa",
