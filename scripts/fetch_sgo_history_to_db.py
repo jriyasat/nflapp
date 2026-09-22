@@ -35,7 +35,13 @@ def fetch_historical(start_date='2024-01-01', api_key=None):
     starts_after = start_date + "T00:00:00Z"
     starts_before = pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%dT%H:%M:%SZ')
     
+    max_pages = 20  # safety cap
+    page = 0
     while True:
+        page += 1
+        if page > max_pages:
+            print(f"Reached max pages ({max_pages}), stopping.")
+            break
         # Use data._get_json with caching (1440 minutes = 24h)
         data = dl._get_json(SGO_EVENTS, f"sgo_historical_{start_date.replace('-','')}.json",
                             1440, params={

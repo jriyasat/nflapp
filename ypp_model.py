@@ -26,18 +26,22 @@ class YPPModel:
             coeff = json.load(f)
         self.alpha = coeff.get('alpha', 0.0)
         self.beta = coeff.get('beta', 0.0)  # coefficient for YPP diff
-        self.r_squared = coeff.get('r_squared', 0.0)
-        self.training_n = coeff.get('sample_size', 0)
+        self.r_squared = coeff.get('r_squared', coeff.get('r2', 0.0))
+        self.training_n = coeff.get('sample_size', coeff.get('n_samples', 0))
         
     def _load_team_stats(self):
         """
         Load team stats from shared_cache table 'sgo_team_stats'.
+        Falls back to 'team_ypp_history' (nflverse‑pbp aggregated).
         Returns a pandas DataFrame with columns including 'team', 'net_ypp', 'date'.
-        If cache empty, returns empty DataFrame.
+        If both caches empty, returns empty DataFrame.
         """
+        # try sgo_team_stats first
         raw, _ = db.cache_get('sgo_team_stats')
         if raw is None:
-            return pd.DataFrame()
+            raw, _ = db.cache_get('team_ypp_history')
+            if raw is None:
+                return pd.DataFrame()
         try:
             rows = json.loads(raw)
         except Exception:
@@ -48,6 +52,8 @@ class YPPModel:
             df['date'] = pd.to_datetime(df['start_date']).dt.date
         elif 'startsAt' in df.columns:
             df['date'] = pd.to_datetime(df['startsAt']).dt.date
+        elif 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date']).dt.date
         # Compute net_ypp if missing
         if 'net_ypp' not in df.columns:
             if all(col in df.columns for col in ['off_ypp', 'def_ypp']):
@@ -77,7 +83,7 @@ class YPPModel:
         mask = df['team'] == team.upper()
         if date is not None:
             if 'date' in df.columns:
-                mask &= df['date'] < pd.to_datetime(date)
+                mask &= df['date'] < pd.to_datetime(date).date()
         team_df = df[mask].sort_values('date', ascending=False).head(4)
         
         if team_df.empty:
