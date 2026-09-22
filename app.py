@@ -798,8 +798,9 @@ def pickem_page():
     st.subheader(f"🤖 Model picks — Week {week}")
     model_picks = db.load_pickem("model", season, week)
     if model_picks.empty:
-        st.info("Model's picks drop with the Monday 8 AM brief — it plays its top-5 edge games, "
-                "at the lines posted when it enters.")
+        st.info("Model's picks drop with the Tuesday 8 AM brief (the first brief after the "
+                "week's Monday-night game ends) — it plays its top-5 edge games, at the lines "
+                "posted when it enters.")
     else:
         GRADE_ICON = {"won": "✅ won", "lost": "❌ lost", "push": "➖ push", "pending": "⏳ pending"}
         show = pd.DataFrame({
