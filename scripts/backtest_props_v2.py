@@ -23,11 +23,12 @@ import sys
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, "/Users/jeff/nfl-edge")
+sys.path.insert(0, "/app")
 import data as dl
 
-SEASONS_ALL = (2021, 2022, 2023, 2024, 2025)
+SEASONS_ALL = (2023,)
 EVAL_FROM = 2023
+MAX_WEEKS = 5  # limit for quick test
 HL = 6.0
 MIN_GAMES = 4
 SNAP_GATE = 0.40
