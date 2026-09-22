@@ -128,10 +128,12 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
     p_elo, elo_spread = elo.predict(away, home)
 
     market = consensus(books)
+    market_src = "books" if market.get("n_books") else None
     if not market.get("n_books") and espn:
         ph, pa = american_to_prob(espn.get("home_ml")), american_to_prob(espn.get("away_ml"))
         if ph and pa:
             market = {"p_home": devig(ph, pa), "n_books": 1}
+            market_src = "espn_ml"
         if espn.get("over_under"):
             market["total"] = espn["over_under"]
 
@@ -140,6 +142,7 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
         sp_home = -float(game_row["spread_line"])
         logit = (sp_home - elo._b) / elo._a
         market = {"p_home": 1 / (1 + math.exp(-logit)), "home_spread": sp_home, "n_books": 0}
+        market_src = "nflverse"
         if pd.notna(game_row.get("total_line")):
             market["total"] = float(game_row["total_line"])
 
@@ -186,7 +189,7 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
     out = {
         "mode": mode, "adjustments": adjs,
         "p_elo": p_elo, "elo_spread": elo_spread,
-        "p_market": p_market, "n_books": market.get("n_books", 0),
+        "p_market": p_market, "n_books": market.get("n_books", 0), "market_src": market_src,
         "market_spread": market.get("home_spread"), "market_total": market.get("total"),
         "model_spread": model_spread, "model_margin": model_margin,
         "angles": [],

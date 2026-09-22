@@ -347,7 +347,8 @@ def _board_rows(season, week):
             "Model Line": fmt_spread(ms, home, away) if ms is not None else "—",
             "Market Line": fmt_spread(mk, home, away) if mk is not None else "—",
             "Edge": (f"{abs(edge):.1f} {home if edge > 0 else away}{' ★' if abs(edge) >= VALUE_EDGE_MIN else ''}"
-                     if edge is not None else "—"),
+                     if edge is not None and pred.get("market_src") == "books" else "—"),
+            # ^ no edge shown vs fallback/implied lines — a star there is phantom value
             "Model Total": round(float(mt), 1) if mt is not None else None,
             "Market Total": round(float(kt), 1) if kt is not None else None,
             "Edge Total": round(float(mt - kt), 1) if mt is not None and kt is not None else None,
@@ -1398,6 +1399,9 @@ def track_record_page():
         st.info("No picks logged yet. The morning brief logs every |edge| ≥ 2 pt call the model "
                 "makes (sides + totals) and grades them against the **closing line**.")
         return
+    # data-quality flagged rows (fallback-line logging bug, W1-2 2026) are excluded
+    # from every metric but stay visible in the table — receipts stay honest
+    clean = picks[picks["flag"].isna()] if "flag" in picks.columns else picks
     s = tracker.summary(picks)
     c = st.columns(5)
     c[0].metric("Sides (at close)", s["spread"]["record"],
@@ -1411,7 +1415,7 @@ def track_record_page():
     # CLV vs closing line — the fast signal. Did the line the model locked (market_val_log,
     # converted to the pick's perspective) beat the number it closed at?
     clvs = []
-    for _, p in picks[picks["grade"].isin(["won", "lost", "push"])].iterrows():
+    for _, p in clean[clean["grade"].isin(["won", "lost", "push"])].iterrows():
         if pd.isna(p["closing_line"]) or pd.isna(p["market_val_log"]):
             continue
         if p["pick_type"] == "spread":
@@ -1434,8 +1438,12 @@ def track_record_page():
     st.caption("Breakeven at -110 is 52.4%. Picks lock the morning an edge first hits 2+ pts "
                "(8 AM brief) at that morning's line — never edited after. "
                "Graded at the **closing** line — the honest number.")
+    if s.get("flagged"):
+        st.caption(f"⚠️ **{s['flagged']} picks excluded** from the record above — they were logged "
+                   "against fallback/implied lines (W1-2 data bug), not real book lines. "
+                   "They stay visible in the table below; the bug is fixed going forward.")
 
-    clv = picks.apply(_pick_clv, axis=1).dropna()
+    clv = clean.apply(_pick_clv, axis=1).dropna()
     if len(clv):
         cc = st.columns(2)
         cc[0].metric("📈 Avg CLV", f"{clv.mean():+.2f} pts")
@@ -1475,6 +1483,9 @@ def track_record_page():
     for _c in ("model_val", "market_val_log", "edge_log"):
         show[_c] = show[_c].apply(lambda v: f"{float(v):+.1f}" if pd.notna(v) and str(v) != "" else "…")
     show["clv"] = picks.apply(_pick_clv, axis=1).apply(lambda v: f"{v:+.2f}" if pd.notna(v) else "…")
+    if "flag" in show.columns:
+        show["grade"] = show.apply(
+            lambda r: f"{r['grade']} ⚠️" if pd.notna(r.get("flag")) else r["grade"], axis=1)
     show.insert(0, "Logo", show["side"].map(logo_url))
     _cols = ["Logo", "logged_at", "game", "pick_type", "side", "model_val",
              "market_val_log", "edge_log", "closing_line", "clv", "grade", "profit"]

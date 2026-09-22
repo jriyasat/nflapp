@@ -51,6 +51,8 @@ def recap_sections(games, season, journal_user=None):
     model_out, user_out = [], []
     if not picks.empty:
         wk = picks[(picks.season == season) & (picks.week == lw) & picks.grade.isin(["won", "lost", "push"])]
+        if "flag" in wk.columns:
+            wk = wk[wk["flag"].isna()]  # data-quality flagged rows don't count (fallback-line bug W1-2 2026)
         if not wk.empty:
             w = int((wk.grade == "won").sum()); l = int((wk.grade == "lost").sum())
             p = int((wk.grade == "push").sum()); prof = wk.profit.fillna(0).sum()
@@ -246,14 +248,13 @@ def main():
     # log model picks (>=2pt edges) daily; grade settled picks
     books_by_abbr = {}
     try:
-        _sgo = dl.sgo_api_key()
-        _key = _sgo or open(os.path.join(dl.CACHE, "odds_api_key.txt")).read().strip()
-        if _key:
-            raw = dl.sgo_lines(_key) if _sgo else dl.odds_api_lines(_key)
-            for (an_, hn), books in raw.items():
-                k = (dl.TEAM_NAME_TO_ABBR.get(an_), dl.TEAM_NAME_TO_ABBR.get(hn))
-                if all(k):
-                    books_by_abbr[k] = books
+        raw = dl.cached_sgo_lines()  # Turso shared cache: same lines the app shows,
+        # zero quota. NEVER a live fetch here (quota burn + divergence from the app +
+        # outage → fallback-line phantom picks; W1-2 2026).
+        for (an_, hn), books in (raw or {}).items():
+            k = (dl.TEAM_NAME_TO_ABBR.get(an_), dl.TEAM_NAME_TO_ABBR.get(hn))
+            if all(k):
+                books_by_abbr[k] = books
     except Exception:
         pass
     try:

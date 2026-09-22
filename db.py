@@ -25,7 +25,7 @@ _BETS_COLS = ["id", "user", "date", "season", "week", "game", "bet_type",
               "selection", "line", "odds", "stake", "book", "status", "profit", "clv"]
 _PICKS_COLS = ["id", "logged_at", "season", "week", "game", "pick_type", "side",
                "model_val", "market_val_log", "edge_log", "p_cover_log",
-               "closing_line", "grade", "profit"]
+               "closing_line", "grade", "profit", "flag"]
 
 _TURSO_CLIENT = None
 _TURSO_SCHEMA_DONE = False
@@ -147,6 +147,10 @@ def _ensure_user_cols(conn):
                      ("bankroll", "REAL"), ("unit", "REAL")):
         if col not in cols:
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+    pcols = [r[1] for r in conn.execute("PRAGMA table_info(predictions)").fetchall()]
+    if "flag" not in pcols:
+        # marks picks excluded from the record (data-quality, e.g. fallback-line logging)
+        conn.execute("ALTER TABLE predictions ADD COLUMN flag TEXT")
 
 
 # ---------------- per-user alert preferences (matrix: alert x channel) ----------------

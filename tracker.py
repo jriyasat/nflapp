@@ -34,7 +34,12 @@ def log_predictions(games, elo, season, week, books_by_abbr=None, espn_odds=None
         pred = pr.predict_game(g, elo, books=books_by_abbr.get((away, home)),
                                espn=espn_odds.get((away, home)), injuries=injuries)
         rows = []
-        if pred.get("edge_pts") is not None and abs(pred["edge_pts"]) >= EDGE_MIN:
+        # spread picks log ONLY against a real multi-book market. The espn_ml/nflverse
+        # fallbacks exist to carry the DISPLAY before lines post — an "edge" vs a
+        # fallback line is phantom (W1-2 2026: 10 picks logged vs fallback lines 6-28
+        # pts off the true market, all graded losses vs real closings).
+        if (pred.get("edge_pts") is not None and abs(pred["edge_pts"]) >= EDGE_MIN
+                and pred.get("market_src") == "books"):
             side = home if pred["edge_pts"] > 0 else away
             rows.append({
                 "pick_type": "spread", "side": side,
@@ -102,8 +107,15 @@ def grade_predictions(games):
     return db.load_picks()
 
 
+def _clean(picks):
+    """Picks that count toward the record: excludes flagged (data-quality) rows."""
+    return picks[picks["flag"].isna()] if "flag" in picks.columns else picks
+
+
 def summary(picks):
     out = {}
+    flagged = int(picks["flag"].notna().sum()) if "flag" in picks.columns else 0
+    picks = _clean(picks)
     for ptype in ("spread", "total"):
         sub = picks[(picks["pick_type"] == ptype) & picks["grade"].isin(["won", "lost", "push"])]
         decided = sub[sub["grade"] != "push"]
@@ -114,10 +126,12 @@ def summary(picks):
             "n": len(sub),
         }
     out["pending"] = int((picks["grade"] == "pending").sum())
+    out["flagged"] = flagged
     return out
 
 
 def edge_buckets(picks):
+    picks = _clean(picks)
     graded = picks[picks["grade"].isin(["won", "lost"])]
     if graded.empty:
         return []
@@ -134,6 +148,7 @@ def edge_buckets(picks):
 
 
 def calibration(picks):
+    picks = _clean(picks)
     graded = picks[picks["grade"].isin(["won", "lost"])].copy()
     if graded.empty:
         return []
