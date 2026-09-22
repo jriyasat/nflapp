@@ -42,6 +42,15 @@ Turso table `shared_cache(key, payload, updated_at-epoch)`. Writer = lines-warm 
 2. Verify: `env -u PYTHONPATH .venv/bin/python` — unit checks + AppTest smoke test (exceptions must be zero)
 3. `git add -A && git commit -m "..."`
 4. `git push` → Streamlit Cloud auto-redeploys in ~1-2 min; users just refresh
+5. **Rebuild the 8502 docker** — it does NOT auto-update on push; skip this and it drifts days behind (found stale at Sep-13 on 2026-09-21):
+   ```bash
+   docker build -t nfl-edge:local . && docker rm -f nfl-edge-test && \
+   docker run -d --name nfl-edge-test -p 8502:8501 --restart unless-stopped \
+     -v "$PWD/auth.yaml:/app/auth.yaml:ro" \
+     -v "$PWD/.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro" \
+     -v "$PWD/data:/app/data" nfl-edge:local
+   ```
+   (Docs-only pushes can skip it; anything user-facing cannot.)
 
 ## Rules
 
