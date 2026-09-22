@@ -1403,6 +1403,27 @@ def track_record_page():
     # from every metric but stay visible in the table — receipts stay honest
     clean = picks[picks["flag"].isna()] if "flag" in picks.columns else picks
     s = tracker.summary(picks)
+    st.caption("📌 **Post-Fix Era begins Week 3, 2026.** Weeks 1–2 ran on a pipeline with a "
+               "data bug: 10 picks were logged against non-market lines and all lost. They are "
+               "excluded from every record on this page but stay visible in the table below. "
+               "Honest W1-2 record: **3-4 spreads, 9-9 totals**. Pipeline fixed Sep 21 — from "
+               "Week 3, every pick logs only against real multi-book lines.")
+    _cur_season, _ = dl.current_season_week(games)
+    era = picks[(picks["season"] == _cur_season) & (picks["week"] >= 3)]
+    st.subheader("🆕 Post-Fix Era (Week 3+)")
+    se = tracker.summary(era)
+    if se["spread"]["n"] + se["total"]["n"] == 0:
+        st.info("No graded picks in this era yet — Week 3 picks log daily at the 8 AM brief and "
+                "grade at the closing line. First receipts land after the Sunday games.")
+    else:
+        ce = st.columns(4)
+        ce[0].metric("Sides (at close)", se["spread"]["record"],
+                     f"{se['spread']['win_pct']:.1f}%" if se["spread"]["win_pct"] is not None else "—")
+        ce[1].metric("Totals (at close)", se["total"]["record"],
+                     f"{se['total']['win_pct']:.1f}%" if se["total"]["win_pct"] is not None else "—")
+        ce[2].metric("Profit (flat -110)", f"{se['spread']['profit'] + se['total']['profit']:+.2f}u")
+        ce[3].metric("Graded picks", se["spread"]["n"] + se["total"]["n"])
+    st.subheader("📜 All-Time (incl. W1-2)")
     c = st.columns(5)
     c[0].metric("Sides (at close)", s["spread"]["record"],
                 f"{s['spread']['win_pct']:.1f}%" if s["spread"]["win_pct"] is not None else "—")
