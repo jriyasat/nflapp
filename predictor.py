@@ -10,6 +10,7 @@ Philosophy (validated by backtests on 2021-2025 closing lines):
 
 import math
 import os
+import json
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,27 @@ MAX_ADJ = 2.5             # cap on total adjustment, points
 MAX_TOTAL_ADJ = 3.5
 USE_YPP = os.environ.get('USE_YPP', 'false').lower() == 'true'
 
+# Load model weights config
+_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config/model_weights.json')
+def _load_weights():
+    try:
+        with open(_CONFIG_PATH) as f:
+            config = json.load(f)
+        market_weight = config.get('market_weight', 0.85)  # market consensus weight
+        nonmarket_weight = 1.0 - market_weight
+        ypp_weight = config.get('ypp_weight', 0.85) if USE_YPP else 0.0
+        elo_weight = config.get('elo_weight', 0.15) if USE_YPP else 1.0
+        # Normalize ypp/elo within non-market portion
+        total = ypp_weight + elo_weight
+        if total > 0:
+            ypp_weight /= total
+            elo_weight /= total
+        return market_weight, nonmarket_weight, ypp_weight, elo_weight
+    except Exception:
+        # fallback to hardcoded defaults
+        return 0.85, 0.15, 0.85 if USE_YPP else 0.0, 0.15 if USE_YPP else 1.0
+
+MARKET_WEIGHT, NONMARKET_WEIGHT, YPP_WEIGHT, ELO_WEIGHT = _load_weights()
 # Totals adjustments (validated, scripts/backtest_totals.py 2021-25)
 REF_ADJ = {"Shawn Hochuli": -1.0, "Ron Torbert": -0.5, "Shawn Smith": -0.5}
 
@@ -137,8 +159,11 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
             ypp_spread = ypp.predict_spread(away, home)
         except Exception:
             ypp_spread = elo_spread
+        # blend YPP and Elo according to config weights
+        nonmarket_spread = ypp_spread * YPP_WEIGHT + elo_spread * ELO_WEIGHT
     else:
         ypp_spread = elo_spread
+        nonmarket_spread = elo_spread
 
     market = consensus(books)
     market_src = "books" if market.get("n_books") else None
@@ -191,10 +216,10 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
         # blend: 85% market + 15% ypp/elo, then adjustments.
         # NOTE: total_adj is on the MARGIN axis (positive = toward home) while
         # model_spread is on the spread axis (negative = home favored) -> SUBTRACT.
-        model_spread = 0.85 * base_spread + 0.15 * ypp_spread - total_adj
+        model_spread = MARKET_WEIGHT * base_spread + NONMARKET_WEIGHT * nonmarket_spread - total_adj
         p_market = market["p_home"]
     else:
-        model_spread = ypp_spread - total_adj
+        model_spread = nonmarket_spread - total_adj
         p_market = None
 
     # model spread -> cover prob for each side (margin ~ Normal(-spread, SD))
