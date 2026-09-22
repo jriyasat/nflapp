@@ -1912,9 +1912,13 @@ def sgp_tab(g, away, home):
     rows = []
     for c in combos:
         a, b = c["legs"]
+        def _px(leg):
+            return f"{leg['price']:+d} ({leg['book']})" if leg.get("price") is not None else "—"
         rows.append({
             "Leg 1": f"{a['label']} ({a['p']*100:.0f}%)",
+            "Best price 1": _px(a),
             "Leg 2": f"{b['label']} ({b['p']*100:.0f}%)",
+            "Best price 2": _px(b),
             "Combo boost": f"×{c['lift']:.2f} (n={c['n']})",
             "Both hit": f"{c['p_joint']*100:.0f}%",
             "Fair price": f"{c['fair_american']:+d}",

@@ -64,6 +64,7 @@ def build_legs(projs_with_edges, pred, home, away):
                 "id": f"{pl['player']}|{kind}", "kind": role, "team": pl["team"],
                 "label": f"{pl['player']} over {e['line']} {PROP_LABEL[kind]}",
                 "side": "over", "p": p_over, "proj": pl[col], "line": e["line"],
+                "price": e.get("over_price"), "book": e.get("over_book"),
             })
     # game-level legs from predictor (when market posted)
     if pred.get("p_home_cover") is not None:

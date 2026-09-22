@@ -406,6 +406,10 @@ def _sgo_event_props(e):
         mkt = SGO_PROP_STATS.get(o.get("statID"))
         if not mkt or o.get("betTypeID") != "ou":
             continue
+        if o.get("periodID") != "game":
+            continue  # FULL-GAME lines only: 1H/quarter lines (73% of entries!) were
+            # pooled into the median — Stafford showed "124.5" (the 1H line) instead
+            # of 238.5 (the game line), making every SGP/Props edge phantom (Sep 2026)
         name = (players.get(o.get("playerID") or "") or {}).get("name")
         if not name:
             continue
