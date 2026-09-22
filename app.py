@@ -1493,7 +1493,7 @@ def track_record_page():
     def _grade_row(row):
         # whole-row receipt color: green = won, red = lost (translucent so it
         # reads on both dark and light themes, phone included)
-        g = str(row.get("grade", "")).lower()
+        g = str(row.get("grade", "")).lower().split()[0]  # "lost ⚠️" -> "lost"
         bg = {"won": "background-color: rgba(22,163,74,0.28)",
               "lost": "background-color: rgba(220,38,38,0.28)"}.get(g, "")
         return [bg] * len(row)
