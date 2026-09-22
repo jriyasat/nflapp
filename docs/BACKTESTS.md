@@ -19,6 +19,22 @@ production threshold) and shows no reliable edge when it does. Model margin MAE 
 market MAE (9.77 vs 9.75). The blend is a no-bet machine by design — spread picks
 in practice come from the injury module.
 
+## Dome / indoor-stadium angles (2026-09-21, n=1,359 REG games 2021–2025, closing lines)
+
+| Angle | n | Result | z | Verdict |
+|---|---|---|---|---|
+| Indoor games → over (no wind) | 428 | 50.7% over (+1.48 avg vs line) | +0.29 | ❌ dead — market prices venue |
+| Dome team away outdoors ATS ("dome tax") | 263 | 54.8% cover | +1.54 | ❌ dead — direction is BACKWARDS (market overprices the tax if anything) and not significant (p≈0.12, multiple angles tested) |
+| Dome team away outdoors, Nov+ | 127 | 55.9% cover | +1.33 | ❌ same |
+| Outdoor team away indoors → over | 289 | 52.2% over | +0.76 | ❌ dead |
+
+Side observation: outdoor games go under 52.5% (z=−1.52) with totals perfectly calibrated
+(+0.02 avg vs line) — the wind module already captures the actionable subset; a blanket
+outdoor-under tweak would double-count it.
+
+**Conclusion:** no indoor-stadium weight. Venue is fully priced; the folk "dome tax"
+points the wrong way in the data. Dead, marked with numbers.
+
 ## Injury module (`scripts/backtest_injury.py`)
 
 Absences proxied from weekly player stats (primary QB = cumulative attempts leader,
