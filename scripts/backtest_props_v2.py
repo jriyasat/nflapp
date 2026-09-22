@@ -26,6 +26,21 @@ import pandas as pd
 sys.path.insert(0, "/app")
 import data as dl
 import nflverse_extra
+import json, os
+
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../config/model_weights.json")
+try:
+    with open(CONFIG_PATH) as f:
+        CONFIG = json.load(f)
+except Exception:
+    CONFIG = {}
+
+snap_share_weight = CONFIG.get("snap_share_weight", 1.0)
+target_share_weight = CONFIG.get("target_share_weight", 0.0)
+pass_volume_factor = CONFIG.get("pass_volume_factor", 1.0)
+rush_volume_factor = CONFIG.get("rush_volume_factor", 1.0)
+ypp_weight = CONFIG.get("ypp_weight", 0.85)
+elo_weight = CONFIG.get("elo_weight", 0.15)
 
 SEASONS_ALL = (2021, 2022, 2023, 2024, 2025)
 EVAL_FROM = 2023
@@ -68,6 +83,9 @@ def main():
     tw = w.groupby(["season", "week", "team"], as_index=False).agg(
         team_pass_att=("attempts", "sum"), team_rush_att=("carries", "sum"),
         team_targets=("targets", "sum"))
+    # apply volume scaling factors
+    tw["team_pass_att"] = tw["team_pass_att"] * pass_volume_factor
+    tw["team_rush_att"] = tw["team_rush_att"] * rush_volume_factor
     w = w.merge(tw, on=["season", "week", "team"], how="left")
     # ---------------- snap counts ----------------
     snaps_df = nflverse_extra.load_snaps(years=SEASONS_ALL)
@@ -77,7 +95,9 @@ def main():
                 on=["season", "week", "team", "nname"], how="left")
     matched = w["offense_pct"].notna().mean()
     print(f"snap merge rate: {matched*100:.0f}% of player-weeks")
-    w["share_t"] = (w["offense_pct"] / 100).fillna(0.0)
+    target_share = np.where(w["team_targets"] > 0, w["targets"] / w["team_targets"], 0.0)
+    snap_share = w["offense_pct"] / 100
+    w["share_t"] = (snap_share_weight * snap_share.fillna(0) + target_share_weight * target_share).clip(0, 1)
     w["share_c"] = np.where(w["team_rush_att"] > 0, w["carries"] / w["team_rush_att"], 0.0)
     # per-game efficiencies (0-safe)
     w["ypt"] = np.where(w["targets"] > 0, w["receiving_yards"] / w["targets"], np.nan)

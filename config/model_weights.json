@@ -8,5 +8,6 @@
   "rush_volume_factor": 1.0,
   "ypp_weight": 0.85,
   "elo_weight": 0.15,
-  "admin_secret": "admin123"
+  "admin_secret": "admin123",
+  "superadmin_secret": "superadmin123"
 }

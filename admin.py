@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import csv
+import hashlib
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -26,7 +27,8 @@ DEFAULTS = {
     "rush_volume_factor": 1.0,
     "ypp_weight": 0.85,
     "elo_weight": 0.15,
-    "admin_secret": "admin123"
+    "admin_secret": "admin123",
+    "superadmin_secret": "superadmin123"
 }
 
 # Market groups for labeling
@@ -76,7 +78,7 @@ def append_history(config_dict, backtest_results=None):
     """Append a new tuning record to history CSV."""
     record = {
         "timestamp": datetime.now().isoformat(),
-        **{k: config_dict.get(k, "") for k in DEFAULTS.keys() if k != "admin_secret"}
+        **{k: config_dict.get(k, "") for k in DEFAULTS.keys() if k not in ["admin_secret", "superadmin_secret"]}
     }
     
     # Add backtest results if provided
@@ -164,7 +166,7 @@ def run_backtest():
 st.set_page_config(page_title="NFL‑Edge Model Tuning", layout="wide")
 
 # Create tabs
-tab1, tab2 = st.tabs(["🎛️ Model Tuning", "📈 Tuning History"])
+tab1, tab2, tab3 = st.tabs(["🎛️ Model Tuning", "📈 Tuning History", "🔬 Experiment Lab"])
 
 with tab1:
     st.title("🔧 NFL‑Edge V2 Model Weight Tuner")
@@ -174,9 +176,16 @@ with tab1:
     
     # Password check
     admin_secret = config.get("admin_secret", "admin123")
+    superadmin_secret = config.get("superadmin_secret", "superadmin123")
     entered = st.text_input("Admin password", type="password")
-    
-    if entered == admin_secret:
+    if entered:
+        entered_hash = hashlib.sha256(entered.encode()).hexdigest()[:8]
+        admin_hash = hashlib.sha256(admin_secret.encode()).hexdigest()[:8]
+        super_hash = hashlib.sha256(superadmin_secret.encode()).hexdigest()[:8]
+        admin_match = entered.strip() == admin_secret.strip()
+        super_match = entered.strip() == superadmin_secret.strip()
+        print(f"[DEBUG] Password check: entered_hash={entered_hash}, admin_hash={admin_hash}, super_hash={super_hash}, admin_match={admin_match}, super_match={super_match}")
+    if entered.strip() == admin_secret.strip() or entered.strip() == superadmin_secret.strip():
         st.success("✅ Access granted")
         
         # Player Props - Target Share
@@ -363,3 +372,84 @@ with tab2:
         # Full data
         with st.expander("📊 Full History Data"):
             st.dataframe(history_df, use_container_width=True)
+
+with tab3:
+    st.title("🔬 Experiment Lab")
+    st.caption("Super‑admin only – staged weight tuning with walk‑forward backtests")
+
+    config = load_config()
+    superadmin_secret = config.get("superadmin_secret", "superadmin123")
+    entered = st.text_input("Superadmin password", type="password")
+    if entered:
+        entered_hash = hashlib.sha256(entered.encode()).hexdigest()[:8]
+        expected_hash = hashlib.sha256(superadmin_secret.encode()).hexdigest()[:8]
+        print(f"[DEBUG] Superadmin password check: entered_hash={entered_hash}, expected_hash={expected_hash}, match={entered.strip() == superadmin_secret.strip()}")
+    if entered.strip() == superadmin_secret.strip():
+        st.success("✅ Super‑admin access granted")
+        
+        # Display current config
+        st.subheader("📋 Current Configuration")
+        st.json({k: config[k] for k in config if k not in ["admin_secret", "superadmin_secret"]})
+        
+        # Candidate config sliders
+        st.subheader("🎛️ Candidate Configuration")
+        st.markdown("Adjust sliders to propose new weights. Backtest will compare candidate vs current.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            candidate_snap_share_weight = st.slider(
+                "snap_share_weight (candidate)",
+                0.0, 2.0, config["snap_share_weight"], step=0.05,
+                help="🎯 Player Props only (target share)"
+            )
+            candidate_target_share_weight = st.slider(
+                "target_share_weight (candidate)",
+                0.0, 2.0, config["target_share_weight"], step=0.05,
+                help="🎯 Player Props only (target share)"
+            )
+            candidate_pass_volume_factor = st.slider(
+                "pass_volume_factor (candidate)",
+                0.0, 4.0, config["pass_volume_factor"], step=0.05,
+                help="📈 Both (props + sides/totals via YPP volume scaling)"
+            )
+        with col2:
+            candidate_rush_volume_factor = st.slider(
+                "rush_volume_factor (candidate)",
+                0.0, 4.0, config["rush_volume_factor"], step=0.05,
+                help="📈 Both (props + sides/totals via YPP volume scaling)"
+            )
+            candidate_ypp_weight = st.slider(
+                "ypp_weight (candidate)",
+                0.0, 1.0, config["ypp_weight"], step=0.05,
+                help="🏈 Sides/Totals only (YPP vs Elo blend)"
+            )
+            candidate_elo_weight = 1.0 - candidate_ypp_weight
+            st.metric("elo_weight (derived)", f"{candidate_elo_weight:.2f}")
+        
+        # Show affected markets
+        st.info("""
+        ### Slider Impact
+        * **snap_share_weight / target_share_weight** → Player Props only
+        * **pass_volume_factor / rush_volume_factor** → Player Props + Sides/Totals (via YPP volume scaling)
+        * **ypp_weight / elo_weight** → Sides/Totals only
+        """)
+        
+        # Run walk‑forward backtest
+        st.subheader("🔬 Backtest & Compare")
+        st.warning("⚠️ YPP coefficients need retraining before tuning meaningful.")
+        
+        if st.button("🚀 Run Walk‑Forward Backtest (2021‑2025)", type="primary"):
+            with st.spinner("Running walk‑forward backtest (2‑3 minutes)..."):
+                # TODO: implement
+                import time
+                time.sleep(2)
+                st.error("Backtest execution not yet implemented. Requires YPP coeff retraining.")
+        
+        # Results placeholder
+        st.subheader("📊 Backtest Results")
+        st.info("Results will appear here after backtest completes.")
+        
+    elif entered != "":
+        st.error("❌ Incorrect super‑admin password")
+    else:
+        st.info("🔒 Enter super‑admin password to access Experiment Lab")

@@ -25,7 +25,7 @@ _BETS_COLS = ["id", "user", "date", "season", "week", "game", "bet_type",
               "selection", "line", "odds", "stake", "book", "status", "profit", "clv"]
 _PICKS_COLS = ["id", "logged_at", "season", "week", "game", "pick_type", "side",
                "model_val", "market_val_log", "edge_log", "p_cover_log",
-               "closing_line", "grade", "profit", "flag"]
+               "closing_line", "grade", "profit", "flag", "config_hash"]
 
 _TURSO_CLIENT = None
 _TURSO_SCHEMA_DONE = False
@@ -151,6 +151,9 @@ def _ensure_user_cols(conn):
     if "flag" not in pcols:
         # marks picks excluded from the record (data-quality, e.g. fallback-line logging)
         conn.execute("ALTER TABLE predictions ADD COLUMN flag TEXT")
+    if "config_hash" not in pcols:
+        # hash of model weights used when pick was logged; allows tuning attribution
+        conn.execute("ALTER TABLE predictions ADD COLUMN config_hash TEXT")
 
 def _default_alert_prefs(email_enabled, telegram_enabled):
     """Mirror pre-matrix behavior: brief + inactives on whichever channels were
@@ -735,12 +738,12 @@ def insert_pick(row):
     with _connect() as c:
         c.execute("""INSERT OR IGNORE INTO predictions
             (id, logged_at, season, week, game, pick_type, side, model_val,
-             market_val_log, edge_log, p_cover_log, closing_line, grade, profit)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             market_val_log, edge_log, p_cover_log, closing_line, grade, profit, flag, config_hash)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (uuid.uuid4().hex[:8], row["logged_at"], row["season"], row["week"],
              row["game"], row["pick_type"], row["side"], row["model_val"],
              row["market_val_log"], row["edge_log"], row["p_cover_log"],
-             None, "pending", None))
+             None, "pending", None, row.get("flag"), row.get("config_hash")))
 
 
 def grade_pick(pick_id, closing_line, grade, profit):

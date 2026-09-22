@@ -2,6 +2,9 @@
 against the CLOSING line. Storage: SQLite via db.py (global, shared)."""
 
 import pandas as pd
+import json
+import hashlib
+import os
 
 import data as dl
 import db
@@ -9,6 +12,21 @@ import predictor as pr
 
 PICKS_PATH = db.DB_PATH  # backwards-compat reference
 EDGE_MIN = 2.0
+
+def config_hash():
+    """Compute SHA256 hash of current model weights config."""
+    config_path = os.path.join(os.path.dirname(__file__), 'config/model_weights.json')
+    try:
+        with open(config_path) as f:
+            config = json.load(f)
+        # exclude admin_secret
+        filtered = {k: v for k, v in config.items() if k != 'admin_secret'}
+        # sort keys for deterministic hash
+        sorted_str = json.dumps(filtered, sort_keys=True)
+        return hashlib.sha256(sorted_str.encode()).hexdigest()[:16]
+    except Exception:
+        return 'unknown'
+
 
 
 def load_picks():
@@ -28,6 +46,7 @@ def log_predictions(games, elo, season, week, books_by_abbr=None, espn_odds=None
     espn_odds = espn_odds or {}
     new = 0
     now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
+    hash_val = config_hash()
     for _, g in wk.iterrows():
         away, home = g["away_team"], g["home_team"]
         label = f"{away} @ {home}"
@@ -45,6 +64,7 @@ def log_predictions(games, elo, season, week, books_by_abbr=None, espn_odds=None
                 "edge_log": round(abs(pred["edge_pts"]), 2),
                 "p_cover_log": round(pred["p_home_cover"] if side == home
                                      else 1 - pred["p_home_cover"], 4),
+                "config_hash": hash_val,
             })
         if pred.get("model_total") is not None:
             gap = pred["model_total"] - pred["market_total"]
@@ -57,6 +77,7 @@ def log_predictions(games, elo, season, week, books_by_abbr=None, espn_odds=None
                     "edge_log": round(abs(gap), 2),
                     "p_cover_log": round(pred["p_over"] if side == "over"
                                          else 1 - pred["p_over"], 4),
+                    "config_hash": hash_val,
                 })
         for r in rows:
             if (label, r["pick_type"]) in existing:

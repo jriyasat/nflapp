@@ -130,8 +130,8 @@ IS_PAID = LEVEL in ("admin", "paid")  # full feature access (admins included)
 CONTACT_EMAIL = "jeff.riyasat@gmail.com"
 
 # central feature gates: feature -> minimum tier. Change tiers in ONE place.
-_LEVEL_RANK = {"user": 0, "paid": 1, "admin": 2}
-FEATURE_GATES = {"props": "paid", "sgp": "paid", "journal": "paid", "email_brief": "paid"}
+_LEVEL_RANK = {"user": 0, "paid": 1, "admin": 2, "superadmin": 3}
+FEATURE_GATES = {"props": "paid", "sgp": "paid", "journal": "paid", "email_brief": "paid", "experiment_lab": "superadmin"}
 
 # ONE value threshold everywhere: ★ stars, green cells, ⚡ badges, Completed
 # receipts = exactly the Track Record bar (tracker.EDGE_MIN). "★ = the model
