@@ -10,7 +10,7 @@ Method (transparent v1):
 
 
 
-import os, json
+import os, json, numpy as np
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config/model_weights.json")
 try:
@@ -58,6 +58,8 @@ USAGE_COL = {"QB": "attempts", "RB": "carries", "WR/TE": "targets"}
 # and stay on v1. Fit on 2021-25 team-week data (neg team_line = favored):
 RUSH_SCRIPT_SLOPE = -0.2284   # team rush attempts per pt of team_line
 RUSH_ATT_MEAN = 26.92         # league mean team rush attempts/game
+PASS_SCRIPT_SLOPE = 0.15      # team pass attempts per pt of team_line (positive = underdogs pass more)
+PASS_ATT_MEAN = 35.0          # league mean team pass attempts/game
 
 
 def script_rush(team_line):
@@ -65,7 +67,11 @@ def script_rush(team_line):
     if team_line is None:
         return 1.0
     return float(min(max(1 + RUSH_SCRIPT_SLOPE * team_line / RUSH_ATT_MEAN, 0.85), 1.15))
-
+def script_pass(team_line):
+    """Game-script pass-volume factor: underdogs pass more. 1.0 when no line."""
+    if team_line is None:
+        return 1.0
+    return float(min(max(1 + PASS_SCRIPT_SLOPE * team_line / PASS_ATT_MEAN, 0.85), 1.15))
 
 def _weights(n):
     return [0.5 ** (i / HALFLIFE) for i in range(n)]
@@ -164,6 +170,24 @@ def project_game(ps, defs, team, opponent, per_pos=2, injuries=None, team_line=N
     reg_with_snaps = reg_with_snaps.merge(team_pass, on=["season", "week"], how="left")
     reg_with_snaps["team_rush_att"] = reg_with_snaps["team_rush_att"].fillna(0)
     reg_with_snaps["team_pass_att"] = reg_with_snaps["team_pass_att"].fillna(0)
+
+    # compute target share if targets column present
+    if "targets" in reg.columns:
+        team_targets = (reg.groupby(["season", "week"])["targets"].sum()
+                        .rename("team_targets").reset_index())
+        reg_with_snaps = reg_with_snaps.merge(team_targets, on=["season", "week"], how="left")
+        reg_with_snaps["target_share"] = np.where(
+            reg_with_snaps["team_targets"] > 0,
+            reg_with_snaps["targets"] / reg_with_snaps["team_targets"],
+            0.0
+        )
+    else:
+        reg_with_snaps["target_share"] = 0.0
+
+    # blend snap_share and target_share using configurable weights
+    reg_with_snaps["share_t"] = (snap_share_weight * reg_with_snaps["snap_share"] +
+                                 target_share_weight * reg_with_snaps["target_share"])
+    reg_with_snaps["share_t"] = reg_with_snaps["share_t"].clip(0, 1)
     
     inj = {_norm(k): v for k, v in (injuries or {}).items()}
     players, benched, warnings = [], [], []
