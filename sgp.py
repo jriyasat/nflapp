@@ -128,7 +128,19 @@ def best_combos(legs, top_n=6):
                 "score": edge_score,
             })
     combos.sort(key=lambda c: -c["score"])
-    return combos[:top_n]
+    # one appearance per leg: a "recommended" list that repeats the same leg in
+    # three combos reads as noise (Jeff, Sep 2026). Greedy: best score first,
+    # keep a combo only if neither leg has been used in an already-kept combo.
+    picked, used = [], set()
+    for c in combos:
+        ids = {c["legs"][0]["id"], c["legs"][1]["id"]}
+        if ids & used:
+            continue
+        used |= ids
+        picked.append(c)
+        if len(picked) >= top_n:
+            break
+    return picked
 
 
 def dec_to_american(dec):
