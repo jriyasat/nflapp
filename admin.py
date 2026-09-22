@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config/model_weights.json")
 DEFAULTS = {
     "snap_share_weight": 1.0,
-    "target_share_weight":303030.0,
+    "target_share_weight": 0.0,
     "ryoe_multiplier": 1.0,
     "separation_multiplier": 1.0,
     "cushion_multiplier": 1.0,
