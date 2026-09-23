@@ -468,6 +468,7 @@ except Exception as e:
 
 try:
     nv_injuries, nv_status = dl.nflverse_injuries()
+    nv_injuries = dl.apply_manual_outs(nv_injuries, season, week)  # Jeff's manual bench list
 except Exception:
     nv_injuries, nv_status = {}, "unavailable"
 
@@ -1282,6 +1283,41 @@ if page == "👥 Users":
 def settings_page():
     st.header("⚙️ Settings")
     me = db.get_user(USER)
+
+    if IS_ADMIN:
+        st.subheader("🚑 Manual injury outs (admin)")
+        st.caption("News-known outs BEFORE the official report publishes (Wed–Fri) — e.g. a QB "
+                   "ruled out Monday night. The model benches them everywhere immediately "
+                   "(props, SGP, spread adjustment, brief, radar). Entries apply only to the "
+                   "week shown and are **ignored automatically once the official report for "
+                   "that team publishes** — no cleanup needed.")
+        entries = dl.manual_outs()
+        wk_teams = sorted({t for ts in an.DIVISIONS.values() for t in ts})
+        with st.form("manual_out_form"):
+            c = st.columns(5)
+            f_team = c[0].selectbox("Team", wk_teams)
+            f_name = c[1].text_input("Player", placeholder="Jaxson Dart")
+            f_pos = c[2].selectbox("Pos", ["QB", "RB", "WR", "TE", "other"])
+            f_status = c[3].selectbox("Status", ["Out", "Doubtful"])
+            f_note = c[4].text_input("Note", placeholder="ruled out Mon night")
+            if st.form_submit_button("➕ Bench him"):
+                if not f_name.strip():
+                    st.error("Player name required.")
+                else:
+                    entries.append({"season": int(season), "week": int(week), "team": f_team,
+                                    "name": f_name.strip(), "position": f_pos, "status": f_status,
+                                    "note": f_note.strip(), "ts": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")})
+                    dl.save_manual_outs(entries)
+                    st.success(f"{f_name} ({f_team}) benched for Week {week} ✅")
+                    st.rerun()
+        for i, o in enumerate(entries):
+            cc = st.columns([6, 1])
+            cc[0].markdown(f"**{o['name']}** ({o['team']}, {o.get('position','')}) — "
+                           f"**{o['status']}** · W{o.get('week')} · {o.get('note','')}")
+            if cc[1].button("✖️", key=f"del_manual_out_{i}", help="Remove override"):
+                entries.pop(i)
+                dl.save_manual_outs(entries)
+                st.rerun()
 
     st.subheader("🔑 Change password")
     with st.form("pw_form"):

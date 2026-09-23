@@ -626,6 +626,59 @@ def load_player_stats():
     return ps
 
 
+def manual_outs():
+    """Jeff's manual bench list (news-known outs before the official report
+    publishes — the Mon-Wed blind spot, e.g. a QB ruled out Monday night).
+    Stored in the shared cache so local, cloud AND crons all see it.
+    [{season, week, team, name, position, status, note, ts}]"""
+    try:
+        import db
+        payload, _ = db.cache_get("manual_outs")
+        return json.loads(payload) if payload else []
+    except Exception:
+        return []
+
+
+def save_manual_outs(entries):
+    import db
+    db.cache_set("manual_outs", json.dumps(entries))
+
+
+def apply_manual_outs(inj, season, week):
+    """Merge manual outs into the nflverse injury dict {team: {rows, label}}.
+    Applies only while a team's official report is STALE (label week behind the
+    override's week) — once the official report for that team catches up,
+    official data rules and the override is ignored. Official rows always win
+    over a manual entry for the same player."""
+    inj = inj or {}
+    for o in manual_outs():
+        try:
+            if int(o.get("season", 0)) != int(season) or int(o.get("week", 0)) != int(week):
+                continue
+        except Exception:
+            continue
+        team = o.get("team")
+        blk = inj.get(team)
+        if blk:
+            try:
+                lbl_season = int(str(blk["label"]).split(" ")[0])
+                lbl_week = int(str(blk["label"]).split(" W")[1].split(" ")[0])
+            except Exception:
+                lbl_season, lbl_week = 0, 0
+            if (lbl_season, lbl_week) >= (int(season), int(week)):
+                continue  # official report is current — override no longer needed
+        else:
+            blk = {"rows": [], "label": "manual override"}
+            inj[team] = blk
+        if any(r.get("name") == o.get("name") for r in blk["rows"]):
+            continue  # official row for this player already present
+        blk["rows"].append({"name": o.get("name"), "position": o.get("position", ""),
+                            "status": o.get("status", "Out"),
+                            "detail": f"manual override — {o.get('note', 'news-reported')}",
+                            "practice": ""})
+    return inj
+
+
 ODDS_EVENTS = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/events"
 ODDS_EVENT_ODDS = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/events/%s/odds/"
 PROP_MARKETS = "player_pass_yds,player_rush_yds,player_reception_yds,player_receptions"
