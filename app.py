@@ -786,7 +786,7 @@ def _kickoff_passed(g):
         return (pd.Timestamp.now()
                 > g["gameday"] + pd.Timedelta(hours=hh, minutes=mm) - pd.Timedelta(minutes=5))
     except Exception:
-        return False
+        return True  # fail CLOSED: can't verify kickoff -> treat as locked
 
 
 def pickem_page():
