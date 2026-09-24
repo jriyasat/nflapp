@@ -224,6 +224,7 @@ def main():
     try:
         nv, status = dl.nflverse_injuries()
         nv = dl.apply_manual_outs(nv, season, week)  # manual bench list (news-known outs)
+        nv = dl.apply_sleeper_outs(nv, season, week)  # fast Sleeper outs (pre-official)
     except Exception:
         nv = {}
     cur_inj = {t: {r["name"]: r["status"] for r in e["rows"]} for t, e in nv.items()}

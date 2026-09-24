@@ -469,6 +469,7 @@ except Exception as e:
 try:
     nv_injuries, nv_status = dl.nflverse_injuries()
     nv_injuries = dl.apply_manual_outs(nv_injuries, season, week)  # Jeff's manual bench list
+    nv_injuries = dl.apply_sleeper_outs(nv_injuries, season, week)  # fast Sleeper outs (pre-official)
 except Exception:
     nv_injuries, nv_status = {}, "unavailable"
 

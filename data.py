@@ -679,6 +679,90 @@ def apply_manual_outs(inj, season, week):
     return inj
 
 
+SLEEPER_PLAYERS = "https://api.sleeper.app/v1/players/nfl"
+# Jeff's rule: high-confidence benches only — Questionable is too noisy to auto-bench.
+# IR is EXCLUDED on purpose: it's long-term and already market-priced (the spread
+# deduction was calibrated on fresh weekly-report outs; adding −0.4 per season-long
+# IR player would be phantom). The official weekly report omits IR players the same
+# way — and IR players rarely project anyway (no recent stats).
+_SLEEPER_BENCH = {"Out": "Out", "Doubtful": "Doubtful"}
+
+
+def sleeper_injuries(max_age_h=1):
+    """Fast injury statuses from the Sleeper API (free, keyless) — tracks news
+    within hours, vs the official nflverse report which lags to Wed-Fri for
+    Sunday teams. Returns {team: {name: (status, position, display_status)}}.
+    Cached on disk (the full payload is ~15MB) and memoized by mtime."""
+    path = os.path.join(CACHE, "sleeper_players.json")
+    if not _fresh(path, max_age_h * 3600):
+        try:
+            r = requests.get(SLEEPER_PLAYERS, timeout=120)
+            if r.status_code == 200 and len(r.content) > 1000:
+                tmp = path + ".tmp"
+                with open(tmp, "wb") as f:
+                    f.write(r.content)
+                os.replace(tmp, path)
+        except Exception:
+            pass
+    if not os.path.exists(path):
+        return {}
+    mt = os.path.getmtime(path)
+    if _MEMO.get("sleeper_mt") == mt:
+        return _MEMO["sleeper"]
+    try:
+        with open(path) as f:
+            players = json.load(f)
+    except Exception:
+        return {}
+    out = {}
+    for p in players.values():
+        st = _SLEEPER_BENCH.get(p.get("injury_status") or "")
+        team, name = p.get("team"), p.get("full_name")
+        if not st or not team or not name:
+            continue
+        team = {"LA": "LAR"}.get(team, team)  # defensive; Sleeper already uses LAR
+        disp = "IR" if p.get("injury_status") == "IR" else st
+        out.setdefault(team, {})[name] = (st, p.get("position") or "", disp)
+    _MEMO["sleeper"] = out
+    _MEMO["sleeper_mt"] = mt
+    return out
+
+
+def _report_is_current(blk, season, week):
+    """True when an injury block's label ('2026 W3 (REG)') is at/above season-week."""
+    try:
+        lbl_season = int(str(blk["label"]).split(" ")[0])
+        lbl_week = int(str(blk["label"]).split(" W")[1].split(" ")[0])
+        return (lbl_season, lbl_week) >= (int(season), int(week))
+    except Exception:
+        return False
+
+
+def apply_sleeper_outs(inj, season, week):
+    """Merge fast Sleeper Out/IR/Doubtful statuses into the injury dict. Same
+    staleness rule as manual outs: only while a team's OFFICIAL report is behind
+    the current week, and never over an existing row (official AND manual
+    entries always win). Rows are labeled 'via Sleeper (unofficial)' so displays
+    stay honest about the source. Precedence: official > manual > Sleeper."""
+    inj = inj or {}
+    for team, players in sleeper_injuries().items():
+        blk = inj.get(team)
+        if blk:
+            if _report_is_current(blk, season, week):
+                continue  # official report caught up — Sleeper no longer needed
+        else:
+            blk = {"rows": [], "label": "via Sleeper (unofficial)"}
+            inj[team] = blk
+        existing = {r.get("name") for r in blk["rows"]}
+        for name, (st, pos, disp) in players.items():
+            if name in existing:
+                continue
+            blk["rows"].append({"name": name, "position": pos, "status": st,
+                                "detail": f"{disp} — via Sleeper (unofficial)",
+                                "practice": ""})
+    return inj
+
+
 ODDS_EVENTS = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/events"
 ODDS_EVENT_ODDS = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/events/%s/odds/"
 PROP_MARKETS = "player_pass_yds,player_rush_yds,player_reception_yds,player_receptions"
