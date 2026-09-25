@@ -56,6 +56,34 @@ edges rooted in market mistakes have a shelf life; edges rooted in physics
 (wind) and information timing (injuries) persist. Decision (Jeff, 2026-09-24):
 ship nothing; record and close.
 
+## Injury-to-totals candidates — ALL DEAD (2026-09-24, 2,718 team-games 2021–2025)
+
+Method: starter = top-usage player per team-season (QB by attempts, RB by carries,
+WR by targets); out = Out/Doubtful on that week's official report; totals graded vs
+closing line.
+
+| Candidate | n | Under rate | Avg vs total | ROI | Verdict |
+|---|---|---|---|---|---|
+| QB1 Out | 91 | 47.3% | +2.12 | −9.8% | ❌ dead — **market now OVERCORRECTS** |
+| QB1 Doubtful | 26 | 57.7% | +0.33 | +10.1% | ❌ noise (n=26) |
+| WR1 Out | 60 | 41.7% | +4.27 | −20.5% | ❌ dead — backwards (overs hit) |
+| RB1 Out | 81 | 59.3% | −0.71 | +13.1% | ❌ fossil (see below) |
+
+**QB-out totals warning (do not resurrect):** season-by-season ROI on QB-out unders:
++6.1% (2021) → +13.5% (2022) → 0% (2023) → **−28.4% (2024) → −31.3% (2025)**.
+The market learned to slash totals on QB news and now slashes too far — backup QBs
+outperform the panic. Betting QB-out unders is a ~−30% ROI loser in the current era.
+
+**RB1 Out fossil:** 73.9% under in 2021 (z=+2.29, +41% ROI) → 63.6% (2022) →
+50.0/50.0/52.6% (2023–25). Same decay signature as the pace angle: real once,
+eaten by 2023.
+
+**Meta-lesson (3x confirmed this week):** market-visible timing angles die in ~2
+seasons. Durable edges share different DNA — physics (wind), information speed
+(Sleeper-layer injury news before books move), and discipline (≥2.0 vs real lines
+only). Injury value on the SPREAD side likewise lives in timing, not close (see
+injury-module section below).
+
 ## Dome / indoor-stadium angles (2026-09-21, n=1,359 REG games 2021–2025, closing lines)
 
 | Angle | n | Result | z | Verdict |
