@@ -19,6 +19,43 @@ production threshold) and shows no reliable edge when it does. Model margin MAE 
 market MAE (9.77 vs 9.75). The blend is a no-bet machine by design — spread picks
 in practice come from the injury module.
 
+## Six candidate adjustments — ALL DEAD (2026-09-24, n=1,359 REG games 2021–2025, closing lines)
+
+| Angle | Best split | Result | Verdict |
+|---|---|---|---|
+| Division games (dogs cover) | Away div dogs 54.3% (n=282, z=1.43) | Combined 52.1%, −0.6% ROI | ❌ dead |
+| Temperature (totals) | 33–45°F: 54.7% under (n=148, z=1.15) | ≤32°F and >75°F: nothing | ❌ dead |
+| Short week / TNF | 51.0% under (n=96, z=0.20) | Home covers 49.5% | ❌ dead |
+| Bye-week fade | Away bye 54.8% (n=73, z=0.82) | Home bye exactly 50.0% | ❌ dead |
+| Body clock (Pacific team, 1pm ET, East) | Fade Pacific visitor: 41.5% (n=65) | Folk angle BACKWARDS (Pacific visitors cover 58.5%) | ❌ dead |
+| Pace differential (fast-fast → over) | See autopsy below | Pooled 55.8% UNDER (n=342, z=2.16) — a 2021-22 fossil | ❌ dead |
+
+Control: wind ≥15 → under 60.9% (z=+2.04) replicated inside the same script — the
+negatives are real, not a broken pipeline.
+
+### Pace-angle autopsy — what a dying edge looks like
+
+Fast/slow = median split on rolling-4-game plays/gm (prior games only, no lookahead).
+Folk theory: two fast teams → more plays → more points → over. Reality: fast and slow
+teams average identical efficiency (5.34 ypp each), the NFL pace spread is ~1.4
+plays/gm at the median, and the 60-minute clock keeps possessions ~constant.
+
+The pooled "edge" was the market overpricing tempo in 2021-22 — then fixing it:
+
+| Season | FF market line | FF actual | Market error | Under rate | ROI |
+|---|---|---|---|---|---|
+| 2021 | 46.8 | 45.6 | −1.1 too high | 57.9% | +10.5% |
+| 2022 | 44.6 | 43.1 | −1.4 too high | 59.7% | +14.0% |
+| 2023 | 43.4 | 44.2 | +0.9 too low | 54.5% | +4.1% |
+| 2024 | 44.5 | 45.8 | +1.3 too low | 53.2% | +1.6% |
+| 2025 | 45.7 | 46.6 | +0.9 too low | 53.1% | +1.3% |
+
+Same direction all five years, magnitude decaying to zero: the market dropped
+fast-fast lines ~3 pts in 2023 and has slightly UNDER-priced them since. Lesson:
+edges rooted in market mistakes have a shelf life; edges rooted in physics
+(wind) and information timing (injuries) persist. Decision (Jeff, 2026-09-24):
+ship nothing; record and close.
+
 ## Dome / indoor-stadium angles (2026-09-21, n=1,359 REG games 2021–2025, closing lines)
 
 | Angle | n | Result | z | Verdict |
