@@ -629,6 +629,13 @@ def load_player_stats():
     return ps
 
 
+def injury_report_updated_at(season):
+    """mtime of the cached nflverse injuries file for a season (fetch time of the
+    report we're displaying) — shown in the app as 'injury report updated ...'."""
+    p = os.path.join(CACHE, f"nflverse_injuries_{season}.csv")
+    return os.path.getmtime(p) if os.path.exists(p) else None
+
+
 def manual_outs():
     """Jeff's manual bench list (news-known outs before the official report
     publishes — the Mon-Wed blind spot, e.g. a QB ruled out Monday night).

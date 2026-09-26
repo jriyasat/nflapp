@@ -1656,12 +1656,18 @@ def form_df(team):
 
 def injuries_block(away, home):
     any_data = False
+    _upd = dl.injury_report_updated_at(season)
     for team in (away, home):
         nv = nv_injuries.get(team)
         if nv and nv["rows"]:
             any_data = True
             st.markdown(f"{team_md(team)} — official NFL report ({nv['label']})",
                         unsafe_allow_html=True)
+            if _upd:
+                note = f"🕐 updated {_et(_upd)}"
+                if not any(r["status"] for r in nv["rows"]):
+                    note += " · practice only so far — game statuses (Q/D/Out) post Friday"
+                st.caption(note)
             st.dataframe(pd.DataFrame([{
                 "Player": r["name"], "Pos": r["position"], "Status": r["status"],
                 "Injury": r["detail"], "Practice": r["practice"],
