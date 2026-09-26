@@ -161,6 +161,7 @@ def project_game(ps, defs, team, opponent, per_pos=2, injuries=None, team_line=N
                 proj_rush = None
             row = {
                 "player": name, "pos": ppos, "team": team, "games": len(g),
+                "player_id": pid,  # needed by app.py L5 hit-rate lookup (was missing → blank column)
                 "proj_pass": round(_wavg(g["passing_yards"].fillna(0).tolist(), w) * (defs["QB"].get(opponent, 1.0) if ppos == "QB" else 1), 1) if ppos == "QB" else None,
                 "proj_rush": proj_rush,
                 "proj_rec_yds": round(_wavg(g["receiving_yards"].fillna(0).tolist(), w) * mult * boost, 1) if ppos in ("WR", "TE", "RB") else None,
@@ -204,6 +205,7 @@ def edges_vs_lines(projections, props_lines):
                 "edge_pct": round(edge / line["point"] * 100, 1) if line["point"] else 0,
                 "over_price": line.get("over_price"), "under_price": line.get("under_price"),
                 "over_book": line.get("over_book"), "under_book": line.get("under_book"),
+                "over_price_avg": line.get("over_price_avg"),
                 "n_books": line.get("n_books", 0),
                 "lean": "OVER" if edge > 0 else "UNDER",
             }

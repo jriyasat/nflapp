@@ -432,6 +432,9 @@ def _sgo_event_props(e):
             "over_book": max(ent["over"])[1] if ent["over"] else None,
             "under_price": max(ent["under"])[0] if ent["under"] else None,
             "under_book": max(ent["under"])[1] if ent["under"] else None,
+            # mean across books — feeds the SGP "Avg book price" parlay column
+            "over_price_avg": (sum(p for p, _ in ent["over"]) / len(ent["over"])) if ent["over"] else None,
+            "under_price_avg": (sum(p for p, _ in ent["under"]) / len(ent["under"])) if ent["under"] else None,
             "n_books": len(ent["points"]),
         }
     return out

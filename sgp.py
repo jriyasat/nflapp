@@ -60,11 +60,16 @@ def build_legs(projs_with_edges, pred, home, away):
             if not kind or not role:
                 continue  # no empirical lift measured for this stat/role combo
             p_over = leg_prob(pl[col], e["line"], kind)
+            if p_over < 0.5:
+                continue  # legs only where the model actually leans OVER — an
+                # "over" leg the model projects below the line is a contradiction
+                # (Allen proj 226 offered as "over 239.5", Sep 2026)
             legs.append({
                 "id": f"{pl['player']}|{kind}", "kind": role, "team": pl["team"],
                 "label": f"{pl['player']} over {e['line']} {PROP_LABEL[kind]}",
                 "side": "over", "p": p_over, "proj": pl[col], "line": e["line"],
                 "price": e.get("over_price"), "book": e.get("over_book"),
+                "price_avg": e.get("over_price_avg"),
             })
     # game-level legs from predictor (when market posted)
     if pred.get("p_home_cover") is not None:
@@ -141,6 +146,19 @@ def best_combos(legs, top_n=6):
         if len(picked) >= top_n:
             break
     return picked
+
+
+def parlay_american(prices):
+    """Combined American odds for a parlay of American-priced legs.
+    Returns None if any leg lacks a price (e.g. covers/wins legs have no
+    per-book prop prices)."""
+    dec = 1.0
+    for a in prices:
+        if a is None:
+            return None
+        a = float(a)
+        dec *= (1 + a / 100) if a > 0 else (1 + 100 / abs(a))
+    return round((dec - 1) * 100) if dec >= 2 else round(-100 / (dec - 1))
 
 
 def dec_to_american(dec):

@@ -1859,65 +1859,11 @@ def props_tab(g, away, home):
                        "— prop lines auto-load Mon & Sat, cached between runs "
                        "(spreads/totals stay live).")
         st.caption("🟢 = edge ≥8% (line = median across books) · **Best Book** = best price for the lean · "
-                   "**L5** = his over/under record vs that line in his last 5 games · "
+                   "**L5** = his over/under record vs that line over his last 10 games · "
                    "⚡ = v2 rushing model (backtest-validated: 61% lean hit 2023-25, see docs/BACKTESTS.md).")
-        if api_key and st.button("↻ Refresh prop lines", key=f"refreshprops_{away}_{home}",
-                                 help="Fetch fresh lines for THIS game now (~4 API credits — "
-                                      "admin unlimited, otherwise counts as your daily load)"):
-            used = db.usage_today(USER, "prop_load")
-            if not IS_ADMIN and used >= 1:
-                st.error("Daily prop-line load used (1/day per user — protects the shared free "
-                         "API quota). Resets at midnight. Admin loads are unlimited.")
-            else:
-                with st.spinner("Fetching fresh prop lines..."):
-                    try:
-                        dl.bust_event_props_cache(ABBR_TO_NAME[away], ABBR_TO_NAME[home])
-                        fetched = dl.odds_api_event_props(props_api_key, ABBR_TO_NAME[away], ABBR_TO_NAME[home])
-                        if not IS_ADMIN:
-                            db.bump_usage(USER, "prop_load")
-                        if fetched:
-                            st.session_state[f"props_{away}_{home}"] = fetched
-                            st.session_state[f"props_ts_{away}_{home}"] = pd.Timestamp.now().timestamp()
-                            st.session_state.pop(f"props_none_{away}_{home}", None)
-                            st.rerun()
-                        else:
-                            st.warning("No player props posted for this game yet — books usually hang "
-                                       "them a few days before kickoff.")
-                    except Exception as e:
-                        st.error(f"Props fetch failed: {e}" if IS_ADMIN
-                                 else "Props fetch failed right now — try again later.")
-    elif api_key:
-        if st.button("📡 Load live prop lines", key=f"loadprops_{away}_{home}",
-                     help="Lines auto-load Mon & Sat; this fetches fresh now (~4 API credits — "
-                          "admin unlimited, otherwise counts as your daily load)."):
-            warm, _ = dl.cached_event_props(ABBR_TO_NAME[away], ABBR_TO_NAME[home])
-            real_fetch = warm is None
-            used = db.usage_today(USER, "prop_load")
-            if real_fetch and not IS_ADMIN and used >= 1:
-                st.error("Daily prop-line load used (1/day per user — protects the shared free "
-                         "API quota). Resets at midnight. Admin loads are unlimited.")
-            else:
-                with st.spinner("Fetching props from The Odds API..." if real_fetch
-                                else "Reading today's shared cache..."):
-                    try:
-                        fetched = dl.odds_api_event_props(props_api_key, ABBR_TO_NAME[away], ABBR_TO_NAME[home])
-                        if real_fetch:
-                            db.bump_usage(USER, "prop_load")
-                        if fetched:
-                            st.session_state[f"props_{away}_{home}"] = fetched
-                            st.session_state[f"props_ts_{away}_{home}"] = pd.Timestamp.now().timestamp()
-                            st.rerun()
-                        else:
-                            st.session_state[f"props_none_{away}_{home}"] = True
-                            st.warning("No player props posted for this game yet — books usually hang "
-                                       "them a few days before kickoff. Check back then.")
-                    except Exception as e:
-                        st.error(f"Props fetch failed: {e}" if IS_ADMIN
-                                 else "Props fetch failed right now — try again later.")
-        if st.session_state.get(f"props_none_{away}_{home}"):
-            st.caption("Last check: props not on the board yet.")
     else:
-        st.caption("Add your Odds API key in the sidebar to compare projections against live prop lines.")
+        st.caption("No prop lines posted for this game yet — books hang Thursday-game props "
+                   "Mon–Tue and the Sunday slate Thu–Sat; they appear here automatically as they post.")
 
 # ---------------- SGP UI ----------------
 def sgp_tab(g, away, home):
@@ -1952,20 +1898,30 @@ def sgp_tab(g, away, home):
         a, b = c["legs"]
         def _px(leg):
             return f"{leg['price']:+d} ({leg['book']})" if leg.get("price") is not None else "—"
+        avg_book = sgp.parlay_american([a.get("price_avg"), b.get("price_avg")])
+        if avg_book is None:
+            avg_cell = "—"
+        else:
+            # green when the book pays LONGER than fair (the +EV pocket), red when shorter
+            mark = "🟢" if avg_book > c["fair_american"] else "🔴"
+            avg_cell = f"{mark} {avg_book:+d}"
         rows.append({
             "Leg 1": f"{a['label']} ({a['p']*100:.0f}%)",
-            "Best price 1": _px(a),
+            "Best 1": _px(a),
             "Leg 2": f"{b['label']} ({b['p']*100:.0f}%)",
-            "Best price 2": _px(b),
-            "Combo boost": f"×{c['lift']:.2f} (n={c['n']})",
+            "Best 2": _px(b),
+            "Boost": f"×{c['lift']:.2f} (n={c['n']})",
             "Both hit": f"{c['p_joint']*100:.0f}%",
+            "Avg book price": avg_cell,
             "Fair price": f"{c['fair_american']:+d}",
             "No-boost price": f"{c['naive_american']:+d}",
         })
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    st.caption("**How to use:** Fair price includes the measured combo boost (2024-25, n=544 real games). "
-               "Only bet the SGP if your book's price is *longer* than Fair — books adjust for "
-               "correlation too, so compare before betting. Boost ≠ guaranteed edge.")
+    st.caption("**How to use:** 🟢 **Avg book price LONGER than Fair price = the +EV pocket** — the books' "
+               "average parlay price for these legs beats our correlation-adjusted fair value. "
+               "Fair price includes the measured combo boost (2024-25, n=544); No-boost price is the same "
+               "combo with zero correlation credit. Avg book price averages each leg's odds across all "
+               "books (shown for player-prop legs only). Boost ≠ guaranteed edge.")
 
 # ---------------- bet slip UI ----------------
 def slip_tab(g, away, home):
