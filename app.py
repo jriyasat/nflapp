@@ -1123,13 +1123,16 @@ breakeven. That's exactly why it's only 15% of our model: a smart prior, not the
 
     st.subheader("🗺️ The diagrams")
     GH = "https://jriyasat.github.io/nflapp"
-    d1, d2 = st.columns(2)
+    d1, d2, d3 = st.columns(3)
     with d1:
         st.markdown(f"[![Data map]({GH}/data-map-preview.png)]({GH}/data-map.html)")
         st.caption("⤴ Data map — click to open the full interactive version")
     with d2:
         st.markdown(f"[![Model pipeline]({GH}/model-diagram-preview.png)]({GH}/model-diagram.html)")
         st.caption("⤴ Model pipeline — click to open the full interactive version")
+    with d3:
+        st.markdown(f"[![Props & SGP system]({GH}/props-system-diagram-preview.png)]({GH}/props-system-diagram.html)")
+        st.caption("⤴ Props & SGP system — click to open the full interactive version")
 
     st.caption("Want the deep dive with backtest numbers? Click the ❓ next to 'Model line' on any Predictor tab.")
 

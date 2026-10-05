@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>NFL Edge — Props & SGP system</title></head><body><div style="max-width:980px">
+<style>
+.pd{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+.pd .lane{display:flex;gap:10px;align-items:stretch;margin:6px 0}
+.pd .box{border:1px solid var(--border,#d4d4d8);border-radius:10px;padding:10px 12px;background:var(--card,#ffffff);flex:1;font-size:12.5px;line-height:1.45;color:var(--foreground,#18181b)}
+.pd .box b{color:var(--foreground,#18181b);display:block;margin-bottom:4px;font-size:13px}
+.pd .box small{color:var(--muted-foreground,#52525b)}
+.pd .arrow{align-self:center;color:var(--muted-foreground,#a1a1aa);font-size:18px}
+.pd .stage{color:var(--accent,#2563eb);font-size:11px;font-weight:700;letter-spacing:.08em;margin:10px 0 2px}
+.pd .ok{color:#16a34a;font-weight:700}
+</style>
+<div class="pd">
+
+<div class="stage">① INPUTS — what feeds the machine</div>
+<div class="lane">
+  <div class="box"><b>Player stats (nflverse)</b><small>2025+2026 weekly. Recency-weighted: 6-game half-life (last game = full weight)</small></div>
+  <div class="box"><b>Defense multipliers</b><small>What each opponent allows per position group (QB / RB / WR-TE), recent games</small></div>
+  <div class="box"><b>Injuries — 3 layers</b><small>Official report → manual outs → Sleeper fast-outs. Out/Doubtful = benched</small></div>
+  <div class="box"><b>SGO prop lines</b><small>Full-game only (periodID=game), median across books, best price per side</small></div>
+  <div class="box"><b>Game line</b><small>Team spread → game script for the rush model (favorites run more)</small></div>
+</div>
+
+<div class="stage">② SELECTION — who gets projected</div>
+<div class="lane">
+  <div class="box"><b>Top usage per team</b><small>QB1 (attempts) · RB1-2 (carries) · WR/TE top-2 (targets) · needs ≥4 games played</small></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Bench the hurt</b><small>Out/Doubtful removed from the pool</small></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Redistribute volume</b><small>60% of benched player's usage flows to survivors as a ↑boost multiplier</small></div>
+</div>
+
+<div class="stage">③ PROJECTION ENGINE — per market</div>
+<div class="lane">
+  <div class="box"><b>Pass yards</b><small>wavg(pass yds) × QB-def mult</small></div>
+  <div class="box"><b>Rush yards (RB)</b><small>carry share × team rush att × script × YPC × RB-def mult × boost<br><span class="ok">61% lean hit, backtested 2023-25</span></small></div>
+  <div class="box"><b>Receiving</b><small>wavg(rec yds / receptions) × WR/TE-def mult × boost</small></div>
+</div>
+
+<div class="stage">④ OUTPUT — where you meet it</div>
+<div class="lane">
+  <div class="box"><b>Props tab</b><small>edge = proj − line · lean · 🟢 ≥8% · best book + price · L5 hit-rate (last 10 games)</small></div>
+  <div class="box"><b>SGP tab</b><small>Legs only when the model leans over → correlation lifts (n=544) → <b>Avg book price</b> vs <b>Fair price</b> 🟢/🔴 — the value pocket</small></div>
+</div>
+
+<div class="stage">GUARDRAILS — always on</div>
+<div class="lane">
+  <div class="box"><small>✅ Books-only lines (no fallback/alt/period lines) · ✅ Bench order: official &gt; manual &gt; Sleeper · ✅ Questionable flagged, never auto-benched · ✅ SGP legs must agree with the model's own lean · ✅ Projections are OUR number — never presented as the book's line</small></div>
+</div>
+
+</div>
+</div>
+</body></html>
