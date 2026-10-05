@@ -1674,8 +1674,9 @@ def travel_tab(g, away, home):
     # hub-and-spokes: one arc per ROAD game, home base → venue (teams fly home after)
     arcs = [{"from": [base[1], base[0]], "to": [s["lon"], s["lat"]]}
             for s in mapped if not s["home"] and base]
-    # week numbers ARE the markers: green = win, red = loss (pixel-sized → zoom-proof)
-    labels = [{"pos": [s["lon"], s["_dlat"]], "label": str(s["week"]),
+    # markers: road games show round-trip miles, home games an "H" — green = win, red = loss
+    labels = [{"pos": [s["lon"], s["_dlat"]],
+               "label": "H" if s["home"] else f"{s['leg_mi']:,}",
                "color": [22, 163, 74, 255] if s["res"] == "W" else ([220, 38, 38, 255] if s["res"] == "L" else [120, 120, 120, 255]),
                "tip": f"W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · {s['venue']}"}
               for s in mapped]
@@ -1696,7 +1697,7 @@ def travel_tab(g, away, home):
     trip = an.next_trip_mi(games, team, season, g)
     this_week = ("home game — no travel" if trip == 0
                  else (f"road trip to {g['home_team']} — {trip:,} mi round trip" if trip is not None else "neutral site"))
-    st.caption(f"🟢 week # = win · 🔴 week # = loss · hover a number for details  |  ✈️ {team}: {len(stops)} games, {road} road trips, "
+    st.caption(f"🟢 = win · 🔴 = loss · road games show round-trip miles · H = home · hover for details  |  ✈️ {team}: {len(stops)} games, {road} road trips, "
                f"{total:,} mi traveled (round trips from home) — this week: {this_week}")
     for s in offmap:
         st.caption(f"🌍 W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · "
