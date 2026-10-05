@@ -161,3 +161,25 @@ Caught via user question about a missing pick; fixed in `10388e5` (subtract
 case. No spread pick was ever logged with the bug (all prior picks were totals).
 Lesson: cold-cache cloud fetches hit code paths warm local caches don't; cloud
 pushes touching imported modules need a Reboot.
+
+## Travel distance / fatigue (Oct 5, 2026) — DEAD
+
+Tested whether travel affects ATS/totals, 2021–2025 REG (n=1,333, real closing
+lines, neutral-site excluded). Away-trip distance (haversine home→venue):
+buckets 0–500/500–1k/1k–1.5k/1.5k–2k/2k+ mi → away cover 51.1/47.8/49.6/49.3/49.2%
+(all |z|<0.9, no gradient). Isolated to non-division games (kills the division
+confound): 47.6/49.7/49.3% — flat. Long-trip (>1.5k mi, non-division) by season:
++6.3/−6.3/+6.6/+0.1/−4.0 pts vs baseline — noise oscillation, the dead-angle
+signature. Back-to-back road games: 49.2% vs 49.5% — nothing. Long-trip totals:
+over% flips sign year to year. **The market prices travel completely; do not
+resurrect.** The ✈️ Travel tab remains a display/teaching feature only — no
+model adjustment.
+
+> ⚠️ **Convention correction (same session):** nflverse `spread_line` is the
+> AWAY team's line (positive = away underdog), verified by corr(result,
+> spread_line)=+0.46 and big-spread samples (HOU +20.5 @ ARI etc.). Earlier
+> ATS-side backtests in this file used the mirrored convention — e.g., the dome
+> "dome team away outdoors 54.8% cover" is actually 45.2% the other side
+> (|z|=1.54 either way: dead stands; fading it is not significant either).
+> Totals-based tests (over/under) are unaffected. Grading in tracker.py uses
+> its own pick-side convention and was independently verified — unaffected.
