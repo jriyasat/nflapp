@@ -2048,7 +2048,7 @@ def render_game(gi, g):
         for i, (tag, detail, lean) in enumerate(spots):
             cols[i % len(cols)].warning(f"**{tag}**{' → ' + lean if lean else ''}\n\n{detail}")
 
-    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (season)", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip"])
+    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Season", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip"])
     with tabs[0]:
         predictor_tab(g, away, home)
     with tabs[1]:
@@ -2069,6 +2069,9 @@ def render_game(gi, g):
             col.markdown(team_md(team), unsafe_allow_html=True)
             df_team = form_df(team)
             if df_team is not None:
+                _w = int((df_team["W/L"] == "W").sum()); _l = int((df_team["W/L"] == "L").sum())
+                col.caption(f"{len(df_team)} games this season · {_w}-{_l}"
+                            + (" · scroll for full season ↕" if len(df_team) > 5 else ""))
                 col.dataframe(df_team, hide_index=True, width="stretch",
                               height=38 + 35 * min(len(df_team), 5))  # 5 rows visible, scroll for the rest
             else:
