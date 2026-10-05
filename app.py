@@ -1671,15 +1671,12 @@ def travel_tab(g, away, home):
         seen[s["venue"]] = seen.get(s["venue"], 0) + 1
         s["_dlat"] = s["lat"] - 0.38 * (seen[s["venue"]] - 1)
     base = an.STADIUMS.get(team)
-    arcs, prev = [], (base[:2] if base else None)
-    for s in mapped:
-        pt = (s["lat"], s["lon"])
-        if prev and pt != prev:
-            arcs.append({"from": [prev[1], prev[0]], "to": [pt[1], pt[0]]})
-        prev = pt
+    # hub-and-spokes: one arc per ROAD game, home base → venue (teams fly home after)
+    arcs = [{"from": [base[1], base[0]], "to": [s["lon"], s["lat"]]}
+            for s in mapped if not s["home"] and base]
     pins = [{"pos": [s["lon"], s["_dlat"]],
              "color": [22, 163, 74, 230] if s["res"] == "W" else ([220, 38, 38, 230] if s["res"] == "L" else [120, 120, 120, 220]),
-             "tip": f"W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · {s['venue']} · leg {s['leg_mi']:,} mi · season {s['cum_mi']:,} mi"}
+             "tip": f"W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · {s['venue']}"}
             for s in mapped]
     labels = [{"pos": [s["lon"], s["_dlat"] + 0.55], "label": str(s["week"])} for s in mapped]
     lats = [s["_dlat"] for s in mapped] + ([base[0]] if base else [])
@@ -1701,9 +1698,9 @@ def travel_tab(g, away, home):
     total = mapped[-1]["cum_mi"] if mapped else 0
     trip = an.next_trip_mi(games, team, season, g)
     this_week = ("home game — no travel" if trip == 0
-                 else (f"road trip to {g['home_team']} — {trip:,} mi" if trip is not None else "neutral site"))
+                 else (f"road trip to {g['home_team']} — {trip:,} mi round trip" if trip is not None else "neutral site"))
     st.caption(f"🟢 win · 🔴 loss · labels = week  |  ✈️ {team}: {len(stops)} games, {road} road trips, "
-               f"{total:,} mi traveled — this week: {this_week}")
+               f"{total:,} mi traveled (round trips from home) — this week: {this_week}")
     for s in offmap:
         st.caption(f"🌍 W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · "
                    f"{s['venue']} (neutral site, off map)")

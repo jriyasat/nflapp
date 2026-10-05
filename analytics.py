@@ -188,14 +188,14 @@ def _haversine_mi(a, b):
 
 
 def travel_stops(df, team, season):
-    """A team's travel path for a season: one stop per PLAYED game (most recent last),
-    with venue coords, W/L/T, and leg miles. Journey starts at the team's home stadium,
-    so a Week-1 away game counts the trip out (and a later home game counts the return).
-    Neutral-site (international) games get venue=None — the app lists them off-map."""
+    """A team's season travel: one stop per PLAYED game with venue coords and W/L/T.
+    Miles are honest round trips from home base (teams fly home after every game):
+    away game = 2× home→venue, home game = 0. Neutral-site (international) games
+    get lat/lon=None — the app lists them off-map."""
     gg = df[(df["season"] == season) & (df["game_type"] == "REG") & (df["result"].notna()) &
             ((df["home_team"] == team) | (df["away_team"] == team))].sort_values("week")
     home_base = STADIUMS.get(team)
-    stops, prev_pt, cum = [], (home_base[:2] if home_base else None), 0.0
+    stops, cum = [], 0.0
     for _, g in gg.iterrows():
         home = g["home_team"] == team
         neutral = str(g.get("location", "")) == "Neutral"
@@ -205,39 +205,34 @@ def travel_stops(df, team, season):
             lat, lon, venue = STADIUMS[g["home_team"]]
         else:
             lat, lon, venue = None, None, g["home_team"]
-        leg = 0.0
-        if lat is not None and prev_pt is not None:
-            leg = _haversine_mi(prev_pt, (lat, lon))
-            cum += leg
-            prev_pt = (lat, lon)
-        elif lat is not None:
-            prev_pt = (lat, lon)
         tie = g["result"] == 0
         win = (home and g["result"] > 0) or (not home and g["result"] < 0)
+        # travel reality: teams fly home after every game — an away game is a
+        # ROUND TRIP from home base; a home game is zero travel
+        rt = round(2 * _haversine_mi(home_base[:2], (lat, lon))) if (not home and lat is not None and home_base) else 0
+        cum += rt
         stops.append({
             "week": int(g["week"]), "date": str(g["gameday"])[:10], "home": home,
             "opp": g["away_team"] if home else g["home_team"],
             "lat": lat, "lon": lon, "venue": venue, "neutral": neutral,
             "res": "T" if tie else ("W" if win else "L"),
             "score": f"{int(g['away_score'])}-{int(g['home_score'])}",
-            "leg_mi": round(leg), "cum_mi": round(cum),
+            "leg_mi": rt, "cum_mi": round(cum),
         })
     return stops
 
 
 def next_trip_mi(df, team, season, game_row):
-    """Miles from the team's last mapped stop to THIS game's venue (for the
-    'this week's trip' caption). 0 for a home game; None if unknown."""
+    """Round-trip miles for THIS game (home base → venue → home). 0 for a home
+    game; None if the venue is unknown/neutral."""
     if game_row["home_team"] == team:
         return 0
-    if str(game_row.get("location", "")) == "Neutral" or game_row["home_team"] not in STADIUMS:
-        return None
-    stops = [s for s in travel_stops(df, team, season) if s["lat"] is not None]
-    start = (stops[-1]["lat"], stops[-1]["lon"]) if stops else STADIUMS.get(team, (None, None))[:2]
-    if start is None:
+    home_base = STADIUMS.get(team)
+    if (str(game_row.get("location", "")) == "Neutral" or not home_base
+            or game_row["home_team"] not in STADIUMS):
         return None
     dest = STADIUMS[game_row["home_team"]]
-    return round(_haversine_mi(start, dest[:2]))
+    return round(2 * _haversine_mi(home_base[:2], dest[:2]))
 
 
 def situational_spots(df, game_row):
