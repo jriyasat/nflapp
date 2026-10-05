@@ -55,10 +55,10 @@ def load_games():
     def _download():
         r = requests.get(GAMES_URL, timeout=60)
         r.raise_for_status()
-        tmp = path + ".tmp"  # atomic: concurrent readers never see a partial file
-        with open(tmp, "wb") as f:
-            f.write(r.content)
-        os.replace(tmp, path)
+        tmp = f"{path}.tmp.{os.getpid()}"  # pid-unique: concurrent cron jobs each
+        with open(tmp, "wb") as f:          # download to their own tmp (the shared
+            f.write(r.content)              # '.tmp' raced: winner's replace deleted
+        os.replace(tmp, path)               # the loser's file → FileNotFoundError)
 
     if not _fresh(path, GAMES_CACHE_H * 3600):
         _download()
@@ -170,7 +170,7 @@ def _get_json(url, cache_name, max_age_min, params=None, service=None, extra_hea
             r = requests.get(url, params=params, timeout=15, headers=hdrs)
             r.raise_for_status()
             data = r.json()
-            tmp = path + ".tmp"  # atomic: concurrent readers never see a partial file
+            tmp = f"{path}.tmp.{os.getpid()}"  # pid-unique: concurrent jobs never race
             with open(tmp, "w") as f:
                 json.dump(data, f)
             os.replace(tmp, path)
@@ -607,7 +607,7 @@ def load_player_stats():
             try:
                 r = requests.get(PLAYER_STATS_URL % s, timeout=120)
                 if r.status_code == 200 and len(r.content) > 100:
-                    tmp = path + ".tmp"  # atomic: concurrent readers never see a partial file
+                    tmp = f"{path}.tmp.{os.getpid()}"  # pid-unique tmp (race fix)
                     with open(tmp, "wb") as f:
                         f.write(r.content)
                     os.replace(tmp, path)
@@ -708,7 +708,7 @@ def sleeper_injuries(max_age_h=1):
         try:
             r = requests.get(SLEEPER_PLAYERS, timeout=120)
             if r.status_code == 200 and len(r.content) > 1000:
-                tmp = path + ".tmp"
+                tmp = f"{path}.tmp.{os.getpid()}"  # pid-unique tmp (race fix)
                 with open(tmp, "wb") as f:
                     f.write(r.content)
                 os.replace(tmp, path)
@@ -931,7 +931,7 @@ def nflverse_injuries(season=None, max_age_h=1):
             try:
                 r = requests.get(NFLVERSE_INJ % s, timeout=60)
                 if r.status_code == 200 and len(r.content) > 100:
-                    tmp = path + ".tmp"  # atomic: concurrent readers never see a partial file
+                    tmp = f"{path}.tmp.{os.getpid()}"  # pid-unique tmp (race fix)
                     with open(tmp, "wb") as f:
                         f.write(r.content)
                     os.replace(tmp, path)
