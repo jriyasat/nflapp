@@ -1674,20 +1674,18 @@ def travel_tab(g, away, home):
     # hub-and-spokes: one arc per ROAD game, home base → venue (teams fly home after)
     arcs = [{"from": [base[1], base[0]], "to": [s["lon"], s["lat"]]}
             for s in mapped if not s["home"] and base]
-    pins = [{"pos": [s["lon"], s["_dlat"]],
-             "color": [22, 163, 74, 230] if s["res"] == "W" else ([220, 38, 38, 230] if s["res"] == "L" else [120, 120, 120, 220]),
-             "tip": f"W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · {s['venue']}"}
-            for s in mapped]
-    labels = [{"pos": [s["lon"], s["_dlat"] + 0.35], "label": str(s["week"])} for s in mapped]
+    # week numbers ARE the markers: green = win, red = loss (pixel-sized → zoom-proof)
+    labels = [{"pos": [s["lon"], s["_dlat"]], "label": str(s["week"]),
+               "color": [22, 163, 74, 255] if s["res"] == "W" else ([220, 38, 38, 255] if s["res"] == "L" else [120, 120, 120, 255]),
+               "tip": f"W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · {s['venue']}"}
+              for s in mapped]
     view = pdk.ViewState(latitude=39.8, longitude=-98.3, zoom=3.4, pitch=0)  # fixed CONUS frame
     deck = pdk.Deck(
         layers=[
             pdk.Layer("ArcLayer", arcs, get_source_position="from", get_target_position="to",
                       get_source_color=[100, 116, 139, 170], get_target_color=[100, 116, 139, 170], get_width=2),
-            pdk.Layer("ScatterplotLayer", pins, get_position="pos", get_fill_color="color",
-                      get_radius=35000, pickable=True),
-            pdk.Layer("TextLayer", labels, get_position="pos", get_text="label", get_size=11,
-                      get_color=[40, 40, 40, 255], get_alignment_baseline="'bottom'"),
+            pdk.Layer("TextLayer", labels, get_position="pos", get_text="label", get_size=20,
+                      get_color="color", fontWeight="bold", pickable=True),
         ],
         initial_view_state=view, map_style="light",
         views=pdk.View(controller=False),  # no zoom/pan — pins never rescale
@@ -1698,7 +1696,7 @@ def travel_tab(g, away, home):
     trip = an.next_trip_mi(games, team, season, g)
     this_week = ("home game — no travel" if trip == 0
                  else (f"road trip to {g['home_team']} — {trip:,} mi round trip" if trip is not None else "neutral site"))
-    st.caption(f"🟢 win · 🔴 loss · labels = week  |  ✈️ {team}: {len(stops)} games, {road} road trips, "
+    st.caption(f"🟢 week # = win · 🔴 week # = loss · hover a number for details  |  ✈️ {team}: {len(stops)} games, {road} road trips, "
                f"{total:,} mi traveled (round trips from home) — this week: {this_week}")
     for s in offmap:
         st.caption(f"🌍 W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · "
