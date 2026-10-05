@@ -1643,7 +1643,7 @@ def lines_block(g, away, home, espn_o, books):
             st.markdown(" • ".join(tags), unsafe_allow_html=True)
 
 def form_df(team):
-    rows = an.last_n(games, team, 3)
+    rows = an.last_n(games[games["season"] == season], team, 99)
     if not rows:
         return None
     out = pd.DataFrame([{
@@ -2048,7 +2048,7 @@ def render_game(gi, g):
         for i, (tag, detail, lean) in enumerate(spots):
             cols[i % len(cols)].warning(f"**{tag}**{' → ' + lean if lean else ''}\n\n{detail}")
 
-    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (last 3)", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip"])
+    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (season)", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip"])
     with tabs[0]:
         predictor_tab(g, away, home)
     with tabs[1]:
@@ -2069,9 +2069,10 @@ def render_game(gi, g):
             col.markdown(team_md(team), unsafe_allow_html=True)
             df_team = form_df(team)
             if df_team is not None:
-                col.dataframe(df_team, hide_index=True, width="stretch")
+                col.dataframe(df_team, hide_index=True, width="stretch",
+                              height=38 + 35 * min(len(df_team), 5))  # 5 rows visible, scroll for the rest
             else:
-                col.info("No recent games found.")
+                col.info("No games played yet this season.")
     with tabs[5]:
         rows, summ = an.h2h(games, away, home, seasons=5)
         if rows:
