@@ -1658,7 +1658,7 @@ def form_df(team):
     return out
 
 def travel_tab(g, away, home):
-    import pydeck as pdk
+    import plotly.graph_objects as go
     team = st.radio("Team", [away, home], horizontal=True, key=f"travel_{g.name}", label_visibility="collapsed")
     stops = an.travel_stops(games, team, season)
     if not stops:
@@ -1667,31 +1667,40 @@ def travel_tab(g, away, home):
     mapped = [dict(s) for s in stops if s["lat"] is not None]
     offmap = [s for s in stops if s["lat"] is None]
     seen = {}
-    for s in mapped:  # stack repeat venues downward (pins under each other)
+    for s in mapped:  # stack repeat venues downward (labels under each other)
         seen[s["venue"]] = seen.get(s["venue"], 0) + 1
         s["_dlat"] = s["lat"] - 0.38 * (seen[s["venue"]] - 1)
     base = an.STADIUMS.get(team)
-    # hub-and-spokes: one arc per ROAD game, home base → venue (teams fly home after)
-    arcs = [{"from": [base[1], base[0]], "to": [s["lon"], s["lat"]]}
-            for s in mapped if not s["home"] and base]
+    fig = go.Figure()
+    # hub-and-spokes: one line per ROAD game, home base → venue (teams fly home after)
+    if base:
+        lat_pts, lon_pts = [], []
+        for s in mapped:
+            if not s["home"]:
+                lat_pts += [base[0], s["lat"], None]
+                lon_pts += [base[1], s["lon"], None]
+        fig.add_trace(go.Scattergeo(lat=lat_pts, lon=lon_pts, mode="lines",
+                                    line=dict(width=1.5, color="rgba(100,116,139,0.65)"),
+                                    hoverinfo="skip", showlegend=False))
     # markers: road games show round-trip miles, home games an "H" — green = win, red = loss
-    labels = [{"pos": [s["lon"], s["_dlat"]],
-               "label": "H" if s["home"] else f"{s['leg_mi']:,}",
-               "color": [22, 163, 74, 255] if s["res"] == "W" else ([220, 38, 38, 255] if s["res"] == "L" else [120, 120, 120, 255]),
-               "tip": f"W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · {s['venue']}"}
-              for s in mapped]
-    view = pdk.ViewState(latitude=39.8, longitude=-98.3, zoom=3.4, pitch=0)  # fixed CONUS frame
-    deck = pdk.Deck(
-        layers=[
-            pdk.Layer("ArcLayer", arcs, get_source_position="from", get_target_position="to",
-                      get_source_color=[100, 116, 139, 170], get_target_color=[100, 116, 139, 170], get_width=2),
-            pdk.Layer("TextLayer", labels, get_position="pos", get_text="label", get_size=20,
-                      get_color="color", fontWeight="bold", pickable=True),
-        ],
-        initial_view_state=view, map_style="light",
-        views=pdk.View(controller=False),  # no zoom/pan — pins never rescale
-        tooltip={"text": "{tip}"})
-    st.pydeck_chart(deck)
+    for res, color in (("W", "#16a34a"), ("L", "#dc2626"), ("T", "#78716c")):
+        pts = [s for s in mapped if s["res"] == res]
+        if not pts:
+            continue
+        fig.add_trace(go.Scattergeo(
+            lat=[s["_dlat"] for s in pts], lon=[s["lon"] for s in pts],
+            mode="text",
+            text=["H" if s["home"] else f"{s['leg_mi']:,}" for s in pts],
+            textfont=dict(size=15, color=color, family="Arial Black, Arial, sans-serif"),
+            hovertext=[f"W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · {s['venue']}"
+                       for s in pts],
+            hoverinfo="text", showlegend=False))
+    fig.update_geos(scope="usa", projection_type="albers usa", showland=True, landcolor="#f8fafc",
+                    showlakes=True, lakecolor="white", showsubunits=True, subunitcolor="#e2e8f0",
+                    bgcolor="white")
+    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=420, dragmode=False, paper_bgcolor="white")
+    st.plotly_chart(fig, width="stretch",
+                    config={"scrollZoom": False, "displayModeBar": False, "doubleClick": False})
     road = sum(1 for s in stops if not s["home"])
     total = mapped[-1]["cum_mi"] if mapped else 0
     trip = an.next_trip_mi(games, team, season, g)
