@@ -1657,6 +1657,58 @@ def form_df(team):
     } for r in rows])
     return out
 
+def travel_tab(g, away, home):
+    import pydeck as pdk
+    team = st.radio("Team", [away, home], horizontal=True, key=f"travel_{g.name}", label_visibility="collapsed")
+    stops = an.travel_stops(games, team, season)
+    if not stops:
+        st.info("No games played yet this season.")
+        return
+    mapped = [dict(s) for s in stops if s["lat"] is not None]
+    offmap = [s for s in stops if s["lat"] is None]
+    seen = {}
+    for s in mapped:  # stack repeat venues downward (pins under each other)
+        seen[s["venue"]] = seen.get(s["venue"], 0) + 1
+        s["_dlat"] = s["lat"] - 0.38 * (seen[s["venue"]] - 1)
+    base = an.STADIUMS.get(team)
+    arcs, prev = [], (base[:2] if base else None)
+    for s in mapped:
+        pt = (s["lat"], s["lon"])
+        if prev and pt != prev:
+            arcs.append({"from": [prev[1], prev[0]], "to": [pt[1], pt[0]]})
+        prev = pt
+    pins = [{"pos": [s["lon"], s["_dlat"]],
+             "color": [22, 163, 74, 230] if s["res"] == "W" else ([220, 38, 38, 230] if s["res"] == "L" else [120, 120, 120, 220]),
+             "tip": f"W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · {s['venue']} · leg {s['leg_mi']:,} mi · season {s['cum_mi']:,} mi"}
+            for s in mapped]
+    labels = [{"pos": [s["lon"], s["_dlat"] + 0.55], "label": str(s["week"])} for s in mapped]
+    lats = [s["_dlat"] for s in mapped] + ([base[0]] if base else [])
+    lons = [s["lon"] for s in mapped] + ([base[1]] if base else [])
+    view = pdk.ViewState(latitude=(min(lats) + max(lats)) / 2, longitude=(min(lons) + max(lons)) / 2,
+                         zoom=3.3 if len(mapped) > 2 else 4.2, pitch=0)
+    deck = pdk.Deck(
+        layers=[
+            pdk.Layer("ArcLayer", arcs, get_source_position="from", get_target_position="to",
+                      get_source_color=[100, 116, 139, 170], get_target_color=[100, 116, 139, 170], get_width=2),
+            pdk.Layer("ScatterplotLayer", pins, get_position="pos", get_fill_color="color",
+                      get_radius=70000, pickable=True),
+            pdk.Layer("TextLayer", labels, get_position="pos", get_text="label", get_size=13,
+                      get_color=[40, 40, 40, 255], get_alignment_baseline="'bottom'"),
+        ],
+        initial_view_state=view, map_style="light", tooltip={"text": "{tip}"})
+    st.pydeck_chart(deck)
+    road = sum(1 for s in stops if not s["home"])
+    total = mapped[-1]["cum_mi"] if mapped else 0
+    trip = an.next_trip_mi(games, team, season, g)
+    this_week = ("home game — no travel" if trip == 0
+                 else (f"road trip to {g['home_team']} — {trip:,} mi" if trip is not None else "neutral site"))
+    st.caption(f"🟢 win · 🔴 loss · labels = week  |  ✈️ {team}: {len(stops)} games, {road} road trips, "
+               f"{total:,} mi traveled — this week: {this_week}")
+    for s in offmap:
+        st.caption(f"🌍 W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · "
+                   f"{s['venue']} (neutral site, off map)")
+
+
 def injuries_block(away, home):
     any_data = False
     _upd = dl.injury_report_updated_at(season)
@@ -2051,7 +2103,7 @@ def render_game(gi, g):
         for i, (tag, detail, lean) in enumerate(spots):
             cols[i % len(cols)].warning(f"**{tag}**{' → ' + lean if lean else ''}\n\n{detail}")
 
-    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Season", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip"])
+    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Season", "✈️ Travel", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip"])
     with tabs[0]:
         predictor_tab(g, away, home)
     with tabs[1]:
@@ -2080,6 +2132,8 @@ def render_game(gi, g):
             else:
                 col.info("No games played yet this season.")
     with tabs[5]:
+        travel_tab(g, away, home)
+    with tabs[6]:
         rows, summ = an.h2h(games, away, home, seasons=5)
         if rows:
             st.markdown(
@@ -2091,9 +2145,9 @@ def render_game(gi, g):
             st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
         else:
             st.info("No meetings in the last 5 seasons.")
-    with tabs[6]:
-        injuries_block(away, home)
     with tabs[7]:
+        injuries_block(away, home)
+    with tabs[8]:
         if gate("journal"):
             slip_tab(g, away, home)
         else:

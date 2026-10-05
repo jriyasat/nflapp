@@ -156,6 +156,90 @@ def last_n(df, team, n=3):
     return [_team_view(g, team) for _, g in games.iterrows()]
 
 
+STADIUMS = {
+    # team: (lat, lon, venue name) — city-level precision is plenty for a US map
+    "ARI": (33.527, -112.186, "State Farm Stadium"), "ATL": (33.755, -84.401, "Mercedes-Benz Stadium"),
+    "BAL": (39.278, -76.623, "M&T Bank Stadium"), "BUF": (42.774, -78.787, "Highmark Stadium"),
+    "CAR": (35.226, -80.853, "Bank of America Stadium"), "CHI": (41.862, -87.617, "Soldier Field"),
+    "CIN": (39.095, -84.516, "Paycor Stadium"), "CLE": (41.506, -81.700, "Huntington Bank Field"),
+    "DAL": (32.747, -97.093, "AT&T Stadium"), "DEN": (39.744, -105.020, "Empower Field"),
+    "DET": (42.340, -83.046, "Ford Field"), "GB": (44.501, -88.062, "Lambeau Field"),
+    "HOU": (29.685, -95.411, "NRG Stadium"), "IND": (39.760, -86.164, "Lucas Oil Stadium"),
+    "JAX": (30.324, -81.638, "EverBank Stadium"), "KC": (39.049, -94.481, "Arrowhead Stadium"),
+    "LA": (33.953, -118.339, "SoFi Stadium"), "LAR": (33.953, -118.339, "SoFi Stadium"),
+    "LAC": (33.953, -118.339, "SoFi Stadium"), "LV": (36.091, -115.183, "Allegiant Stadium"),
+    "MIA": (25.958, -80.239, "Hard Rock Stadium"), "MIN": (44.974, -93.258, "U.S. Bank Stadium"),
+    "NE": (42.091, -71.264, "Gillette Stadium"), "NO": (29.951, -90.081, "Caesars Superdome"),
+    "NYG": (40.813, -74.074, "MetLife Stadium"), "NYJ": (40.813, -74.074, "MetLife Stadium"),
+    "PHI": (39.901, -75.168, "Lincoln Financial Field"), "PIT": (40.447, -80.016, "Acrisure Stadium"),
+    "SEA": (47.595, -122.332, "Lumen Field"), "SF": (37.403, -121.970, "Levi's Stadium"),
+    "TB": (27.976, -82.503, "Raymond James Stadium"), "TEN": (36.166, -86.771, "Nissan Stadium"),
+    "WAS": (38.908, -76.865, "Northwest Stadium"),
+}
+
+
+def _haversine_mi(a, b):
+    """Great-circle miles between two (lat, lon) points."""
+    from math import radians, sin, cos, asin, sqrt
+    lat1, lon1 = radians(a[0]), radians(a[1])
+    lat2, lon2 = radians(b[0]), radians(b[1])
+    h = sin((lat2 - lat1) / 2) ** 2 + cos(lat1) * cos(lat2) * sin((lon2 - lon1) / 2) ** 2
+    return 2 * 3958.8 * asin(sqrt(h))
+
+
+def travel_stops(df, team, season):
+    """A team's travel path for a season: one stop per PLAYED game (most recent last),
+    with venue coords, W/L/T, and leg miles. Journey starts at the team's home stadium,
+    so a Week-1 away game counts the trip out (and a later home game counts the return).
+    Neutral-site (international) games get venue=None — the app lists them off-map."""
+    gg = df[(df["season"] == season) & (df["game_type"] == "REG") & (df["result"].notna()) &
+            ((df["home_team"] == team) | (df["away_team"] == team))].sort_values("week")
+    home_base = STADIUMS.get(team)
+    stops, prev_pt, cum = [], (home_base[:2] if home_base else None), 0.0
+    for _, g in gg.iterrows():
+        home = g["home_team"] == team
+        neutral = str(g.get("location", "")) == "Neutral"
+        if neutral:
+            lat, lon, venue = None, None, str(g.get("stadium") or "Neutral site")
+        elif g["home_team"] in STADIUMS:
+            lat, lon, venue = STADIUMS[g["home_team"]]
+        else:
+            lat, lon, venue = None, None, g["home_team"]
+        leg = 0.0
+        if lat is not None and prev_pt is not None:
+            leg = _haversine_mi(prev_pt, (lat, lon))
+            cum += leg
+            prev_pt = (lat, lon)
+        elif lat is not None:
+            prev_pt = (lat, lon)
+        tie = g["result"] == 0
+        win = (home and g["result"] > 0) or (not home and g["result"] < 0)
+        stops.append({
+            "week": int(g["week"]), "date": str(g["gameday"])[:10], "home": home,
+            "opp": g["away_team"] if home else g["home_team"],
+            "lat": lat, "lon": lon, "venue": venue, "neutral": neutral,
+            "res": "T" if tie else ("W" if win else "L"),
+            "score": f"{int(g['away_score'])}-{int(g['home_score'])}",
+            "leg_mi": round(leg), "cum_mi": round(cum),
+        })
+    return stops
+
+
+def next_trip_mi(df, team, season, game_row):
+    """Miles from the team's last mapped stop to THIS game's venue (for the
+    'this week's trip' caption). 0 for a home game; None if unknown."""
+    if game_row["home_team"] == team:
+        return 0
+    if str(game_row.get("location", "")) == "Neutral" or game_row["home_team"] not in STADIUMS:
+        return None
+    stops = [s for s in travel_stops(df, team, season) if s["lat"] is not None]
+    start = (stops[-1]["lat"], stops[-1]["lon"]) if stops else STADIUMS.get(team, (None, None))[:2]
+    if start is None:
+        return None
+    dest = STADIUMS[game_row["home_team"]]
+    return round(_haversine_mi(start, dest[:2]))
+
+
 def situational_spots(df, game_row):
     """Flags for one upcoming game. Returns list of (label, detail, lean)."""
     spots = []
