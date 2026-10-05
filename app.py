@@ -1678,7 +1678,7 @@ def travel_tab(g, away, home):
              "color": [22, 163, 74, 230] if s["res"] == "W" else ([220, 38, 38, 230] if s["res"] == "L" else [120, 120, 120, 220]),
              "tip": f"W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · {s['venue']}"}
             for s in mapped]
-    labels = [{"pos": [s["lon"], s["_dlat"] + 0.55], "label": str(s["week"])} for s in mapped]
+    labels = [{"pos": [s["lon"], s["_dlat"] + 0.35], "label": str(s["week"])} for s in mapped]
     lats = [s["_dlat"] for s in mapped] + ([base[0]] if base else [])
     lons = [s["lon"] for s in mapped] + ([base[1]] if base else [])
     view = pdk.ViewState(latitude=(min(lats) + max(lats)) / 2, longitude=(min(lons) + max(lons)) / 2,
@@ -1688,8 +1688,8 @@ def travel_tab(g, away, home):
             pdk.Layer("ArcLayer", arcs, get_source_position="from", get_target_position="to",
                       get_source_color=[100, 116, 139, 170], get_target_color=[100, 116, 139, 170], get_width=2),
             pdk.Layer("ScatterplotLayer", pins, get_position="pos", get_fill_color="color",
-                      get_radius=70000, pickable=True),
-            pdk.Layer("TextLayer", labels, get_position="pos", get_text="label", get_size=13,
+                      get_radius=35000, pickable=True),
+            pdk.Layer("TextLayer", labels, get_position="pos", get_text="label", get_size=11,
                       get_color=[40, 40, 40, 255], get_alignment_baseline="'bottom'"),
         ],
         initial_view_state=view, map_style="light", tooltip={"text": "{tip}"})
