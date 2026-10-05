@@ -1679,10 +1679,7 @@ def travel_tab(g, away, home):
              "tip": f"W{s['week']} {'vs' if s['home'] else '@'} {s['opp']} — {s['res']} {s['score']} · {s['venue']}"}
             for s in mapped]
     labels = [{"pos": [s["lon"], s["_dlat"] + 0.35], "label": str(s["week"])} for s in mapped]
-    lats = [s["_dlat"] for s in mapped] + ([base[0]] if base else [])
-    lons = [s["lon"] for s in mapped] + ([base[1]] if base else [])
-    view = pdk.ViewState(latitude=(min(lats) + max(lats)) / 2, longitude=(min(lons) + max(lons)) / 2,
-                         zoom=3.3 if len(mapped) > 2 else 4.2, pitch=0)
+    view = pdk.ViewState(latitude=39.8, longitude=-98.3, zoom=3.4, pitch=0)  # fixed CONUS frame
     deck = pdk.Deck(
         layers=[
             pdk.Layer("ArcLayer", arcs, get_source_position="from", get_target_position="to",
@@ -1692,7 +1689,9 @@ def travel_tab(g, away, home):
             pdk.Layer("TextLayer", labels, get_position="pos", get_text="label", get_size=11,
                       get_color=[40, 40, 40, 255], get_alignment_baseline="'bottom'"),
         ],
-        initial_view_state=view, map_style="light", tooltip={"text": "{tip}"})
+        initial_view_state=view, map_style="light",
+        views=pdk.View(controller=False),  # no zoom/pan — pins never rescale
+        tooltip={"text": "{tip}"})
     st.pydeck_chart(deck)
     road = sum(1 for s in stops if not s["home"])
     total = mapped[-1]["cum_mi"] if mapped else 0
