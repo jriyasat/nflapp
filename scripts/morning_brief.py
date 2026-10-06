@@ -228,6 +228,7 @@ def main():
     except Exception:
         nv = {}
     cur_inj = {t: {r["name"]: r["status"] for r in e["rows"]} for t, e in nv.items()}
+    inj_pos = {t: {r["name"]: r.get("position") or "?" for r in e["rows"]} for t, e in nv.items()}
     old_inj = load_snap(SNAP_INJ)
     inj_changes = []
     if old_inj is not None:
@@ -238,7 +239,8 @@ def main():
             for name, st in players.items():
                 old_st = (old_inj.get(team) or {}).get(name, "")
                 if STATUS_RANK.get(st, 0) > STATUS_RANK.get(old_st, 0) and STATUS_RANK.get(st, 0) >= 1:
-                    inj_changes.append((STATUS_RANK[st], f"• {team}: {name} — *{st}*"
+                    pos = inj_pos.get(team, {}).get(name, "?")
+                    inj_changes.append((STATUS_RANK[st], f"• {team}: {name} ({pos}) — *{st}*"
                                         + (f" (was {old_st})" if old_st else " (new)")))
     if inj_changes:
         inj_changes.sort(reverse=True)
