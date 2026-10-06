@@ -24,8 +24,8 @@ target_share_weight = CONFIG.get("target_share_weight", 0.0)
 ryoe_multiplier = CONFIG.get("ryoe_multiplier", 1.0)
 separation_multiplier = CONFIG.get("separation_multiplier", 1.0)
 cushion_multiplier = CONFIG.get("cushion_multiplier", 1.0)
-pass_volume_factor = CONFIG.get("pass_volume_factor", 1.0)
-rush_volume_factor = CONFIG.get("rush_volume_factor", 1.0)
+pass_volume_factor = CONFIG.get("props_pass_volume_factor", CONFIG.get("pass_volume_factor", 1.0))
+rush_volume_factor = CONFIG.get("props_rush_volume_factor", CONFIG.get("rush_volume_factor", 1.0))
 ypp_weight = CONFIG.get("ypp_weight", 0.85)
 elo_weight = CONFIG.get("elo_weight", 0.15)
 HALFLIFE = 6.0
@@ -158,6 +158,8 @@ def project_game(ps, defs, team, opponent, per_pos=2, injuries=None, team_line=N
     snaps_df["norm_name"] = snaps_df["player_display_name"].apply(_norm)
     reg["norm_name"] = reg["player_display_name"].apply(_norm)
     # merge snap counts into reg
+    print(f"[DEBUG] snaps_df columns: {list(snaps_df.columns)}")
+    print(f"[DEBUG] required cols: team, season, week, norm_name, offense_snaps, offense_pct")
     reg_with_snaps = reg.merge(
         snaps_df[["team", "season", "week", "norm_name", "offense_snaps", "offense_pct"]],
         on=["team", "season", "week", "norm_name"], how="left"

@@ -37,8 +37,8 @@ except Exception:
 
 snap_share_weight = CONFIG.get("snap_share_weight", 1.0)
 target_share_weight = CONFIG.get("target_share_weight", 0.0)
-pass_volume_factor = CONFIG.get("pass_volume_factor", 1.0)
-rush_volume_factor = CONFIG.get("rush_volume_factor", 1.0)
+pass_volume_factor = CONFIG.get("props_pass_volume_factor", CONFIG.get("pass_volume_factor", 1.0))
+rush_volume_factor = CONFIG.get("props_rush_volume_factor", CONFIG.get("rush_volume_factor", 1.0))
 ypp_weight = CONFIG.get("ypp_weight", 0.85)
 elo_weight = CONFIG.get("elo_weight", 0.15)
 
@@ -73,8 +73,8 @@ def main():
         df = pd.read_csv(os.path.join(dl.CACHE, f"player_stats_{s}.csv"), low_memory=False)
         frames.append(df[df["season_type"] == "REG"])
     w = pd.concat(frames, ignore_index=True)
-    num_cols = ["attempts", "passing_yards", "carries", "rushing_yards",
-                "targets", "receptions", "receiving_yards"]
+    num_cols = ["attempts", "passing_yards", "passing_tds", "carries", "rushing_yards", "rushing_tds",
+                "targets", "receptions", "receiving_yards", "receiving_tds"]
     for c in num_cols:
         w[c] = pd.to_numeric(w[c], errors="coerce").fillna(0.0)
     w = w.sort_values(["player_id", "season", "week"]).reset_index(drop=True)
@@ -104,6 +104,9 @@ def main():
     w["catch_rate"] = np.where(w["targets"] > 0, w["receptions"] / w["targets"], np.nan)
     w["ypc"] = np.where(w["carries"] > 0, w["rushing_yards"] / w["carries"], np.nan)
     w["ypa"] = np.where(w["attempts"] > 0, w["passing_yards"] / w["attempts"], np.nan)
+    w["td_per_pass"] = np.where(w["attempts"] > 0, w["passing_tds"] / w["attempts"], np.nan)
+    w["td_per_rush"] = np.where(w["carries"] > 0, w["rushing_tds"] / w["carries"], np.nan)
+    w["td_per_rec"] = np.where(w["targets"] > 0, w["receiving_tds"] / w["targets"], np.nan)
 
     # ---------------- team line for game script (from games.csv) ----------------
     games = dl.load_games()
@@ -153,14 +156,14 @@ def main():
                     right_on=["def_team", "season", "week"], how="left").drop(columns=["def_team"])
 
     # ---------------- point-in-time player features ----------------
-    feat_cols = ["share_t", "share_c", "ypt", "catch_rate", "ypc", "ypa",
-                 "passing_yards", "rushing_yards", "receiving_yards", "receptions",
+    feat_cols = ["share_t", "share_c", "ypt", "catch_rate", "ypc", "ypa", "td_per_pass", "td_per_rush", "td_per_rec",
+                 "passing_yards", "passing_tds", "rushing_yards", "rushing_tds", "receiving_yards", "receiving_tds", "receptions",
                  "offense_pct"]
     feats = ewm_prior(w, "player_id", feat_cols)
     feats.columns = [f"e_{c}" for c in feat_cols]
     w = pd.concat([w, feats], axis=1)
     # naive line: unweighted trailing-10 mean
-    for c in ("passing_yards", "rushing_yards", "receiving_yards", "receptions"):
+    for c in ("passing_yards", "passing_tds", "rushing_yards", "rushing_tds", "receiving_yards", "receiving_tds", "receptions"):
         w[f"n_{c}"] = (w.sort_values(["player_id", "season", "week"])
                        .groupby("player_id")[c]
                        .transform(lambda s: s.shift().rolling(10, min_periods=MIN_GAMES).mean()))
@@ -181,21 +184,30 @@ def main():
     w["v2_rec"] = w["e_share_t"] * w["e_team_pass_att"] * w["sp_pass"] * w["e_catch_rate"] * w["opp_WT"]
     w["v2_rush"] = w["e_share_c"] * w["e_team_rush_att"] * w["sp_rush"] * w["e_ypc"] * w["opp_RB"]
     w["v2_pass"] = w["e_team_pass_att"] * w["sp_pass"] * w["e_ypa"] * w["opp_QB"]
+    w["v2_pass_td"] = w["e_team_pass_att"] * w["sp_pass"] * w["e_td_per_pass"] * w["opp_QB"]
+    w["v2_rush_td"] = w["e_share_c"] * w["e_team_rush_att"] * w["sp_rush"] * w["e_td_per_rush"] * w["opp_RB"]
+    w["v2_rec_td"] = w["e_share_t"] * w["e_team_pass_att"] * w["sp_pass"] * w["e_td_per_rec"] * w["opp_WT"]
     # v1 re-implementation: ewm stat x opp mult
     w["v1_rec_yds"] = w["e_receiving_yards"] * w["opp_WT"]
     w["v1_rec"] = w["e_receptions"] * w["opp_WT"]
     w["v1_rush"] = w["e_rushing_yards"] * w["opp_RB"]
     w["v1_pass"] = w["e_passing_yards"] * w["opp_QB"]
+    w["v1_pass_td"] = w["e_passing_tds"] * w["opp_QB"]
+    w["v1_rush_td"] = w["e_rushing_tds"] * w["opp_RB"]
+    w["v1_rec_td"] = w["e_receiving_tds"] * w["opp_WT"]
 
     # ---------------- evaluation ----------------
     ev = w[(w["season"] >= EVAL_FROM) & w["e_receiving_yards"].notna()].copy()
-    ev = ev[(ev["position"] == "QB") | (ev["e_offense_pct"] >= SNAP_GATE)]
+    ev = ev[(ev["position"] == "QB") | (ev["e_offense_pct"].fillna(100) >= SNAP_GATE)]
     print(f"\neval player-weeks (2023-25, role-qualified): {len(ev)}\n")
 
     markets = [("rec_yds", "receiving_yards", ("WR", "TE")),
                ("rec", "receptions", ("WR", "TE")),
                ("rush", "rushing_yards", ("RB",)),
-               ("pass", "passing_yards", ("QB",))]
+               ("pass", "passing_yards", ("QB",)),
+               ("pass_td", "passing_tds", ("QB",)),
+               ("rush_td", "rushing_tds", ("RB",)),
+               ("rec_td", "receiving_tds", ("WR", "TE"))]
 
     print("=== GATE 1+2: MAE vs actuals (v2 must beat v1 AND naive) ===")
     print(f"{'market':>10} {'n':>6} {'MAE v1':>8} {'MAE naive':>10} {'MAE v2':>8} {'v2<naive?':>10} {'v2<v1?':>8}")
