@@ -105,8 +105,12 @@ def main():
         if snap.get(label) == sig:
             continue
         new_snap[label] = sig
+        from collections import Counter
+        cnt = Counter(t for t, _, _ in inact)
+        label_ct = (f"{g['away_team']} [{cnt.get(g['away_team'], 0)} out] @ "
+                    f"{g['home_team']} [{cnt.get(g['home_team'], 0)} out]")
         lines = [f"• {t}: {n} ({p}) OUT" for t, n, p in inact]
-        sections.append(f"🚫 *{label}* (kickoff {kickoff.strftime('%-I:%M %p')}) [{len(inact)} out]\n" + "\n".join(lines))
+        sections.append(f"🚫 *{label_ct}* (kickoff {kickoff.strftime('%-I:%M %p')})\n" + "\n".join(lines))
 
     json.dump(new_snap, open(SNAP, "w"))
     if not sections:
