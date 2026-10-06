@@ -1289,6 +1289,32 @@ def settings_page():
     me = db.get_user(USER)
 
     if IS_ADMIN:
+        st.subheader("🏥 Pipeline health (admin)")
+        st.caption("Every cron job reports its run status here (written to the shared DB by the "
+                   "job wrapper). ⚠️ = no successful report in 26h — the job is hung, crash-looping, "
+                   "or its schedule stopped.")
+        try:
+            import json as _json
+            _raw, _ = db.cache_get("cron_health")
+            _health = _json.loads(_raw) if isinstance(_raw, str) and _raw else {}
+        except Exception:
+            _health = {}
+        if _health:
+            _now = pd.Timestamp.now().timestamp()
+            _rows = []
+            for _job, _v in sorted(_health.items()):
+                _age_h = (_now - float(_v.get("ts", 0))) / 3600
+                _rows.append({
+                    "job": _job,
+                    "last run": _et(_v.get("ts")) or "—",
+                    "status": ("✅ ok" if _v.get("status") == "ok" else f"❌ {_v.get('status')}")
+                              + (" ⚠️ stale" if _age_h > 26 else ""),
+                    "note": _v.get("note", ""),
+                })
+            st.dataframe(pd.DataFrame(_rows), hide_index=True, width="stretch")
+        else:
+            st.caption("No health reports yet — jobs begin reporting after their next scheduled run.")
+
         st.subheader("🚑 Manual injury outs (admin)")
         st.caption("News-known outs BEFORE the official report publishes (Wed–Fri) — e.g. a QB "
                    "ruled out Monday night. The model benches them everywhere immediately "

@@ -65,5 +65,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    os._exit(0)  # libsql client threads hang interpreter shutdown — exit on ALL paths
+    from _common import run
+    run(main)

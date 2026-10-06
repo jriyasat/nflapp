@@ -27,6 +27,23 @@ def bootstrap():
     os.environ.pop("PYTHONPATH", None)
 
 
+def _health_record(status, note=""):
+    """Write this job's run status into the Turso shared cache (key 'cron_health')
+    so every surface (Settings page, cloud, local) can show pipeline health.
+    Never raises — health reporting must never break the job itself."""
+    try:
+        import time
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        import db
+        job = os.path.basename(sys.argv[0]).replace(".py", "")
+        raw, _ = db.cache_get("cron_health")
+        health = json.loads(raw) if isinstance(raw, str) and raw else {}
+        health[job] = {"ts": time.time(), "status": status, "note": str(note)[:200]}
+        db.cache_set("cron_health", json.dumps(health))
+    except Exception:
+        pass
+
+
 def run(main):
     bootstrap()
     import signal
@@ -40,7 +57,12 @@ def run(main):
     except Exception:
         import traceback
         traceback.print_exc()
+        try:
+            _health_record("error", traceback.format_exc().strip().splitlines()[-1])
+        except Exception:
+            pass
         die(1)
+    _health_record("ok")
     die(0)
 
 
