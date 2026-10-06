@@ -1563,6 +1563,25 @@ def track_record_page():
         else:
             st.info("No graded picks yet.")
 
+    # 🧪 paper trades (experimental) — live trial, never in the headline record
+    if "experimental" in picks.columns and (picks["experimental"] == 1).any():
+        exp = picks[picks["experimental"] == 1]
+        st.subheader("🧪 Paper trades (experimental)")
+        st.caption("Gust ≥20 mph at kickoff → totals UNDER lean. Live trial before any model "
+                   "change — graded at close like real picks, but **not model picks** and "
+                   "excluded from every number above.")
+        g_ = exp[exp["grade"].isin(["won", "lost", "push"])]
+        if len(g_):
+            w_ = int((g_["grade"] == "won").sum()); l_ = int((g_["grade"] == "lost").sum())
+            p_ = int((g_["grade"] == "push").sum())
+            rate = f" ({w_/(w_+l_):.1%} on decided)" if (w_ + l_) else ""
+            st.markdown(f"**Record: {w_}-{l_}-{p_}**{rate} · {int((exp['grade'] == 'pending').sum())} pending")
+        else:
+            st.markdown(f"**Record: 0-0-0** · {int((exp['grade'] == 'pending').sum())} pending")
+        _exp = exp[["week", "game", "side", "model_val", "market_val_log", "closing_line", "grade"]].copy()
+        _exp.columns = ["week", "game", "side", "gust mph", "total @ log", "closing", "grade"]
+        st.dataframe(_exp.iloc[::-1], hide_index=True, width="stretch")
+
     st.subheader("All picks")
     show = picks.copy()
     show["profit"] = show["profit"].apply(lambda v: f"{float(v):+.2f}" if pd.notna(v) and str(v) != "" else "…")
@@ -1574,6 +1593,9 @@ def track_record_page():
     if "flag" in show.columns:
         show["grade"] = show.apply(
             lambda r: f"{r['grade']} ⚠️" if pd.notna(r.get("flag")) else r["grade"], axis=1)
+    if "experimental" in show.columns:
+        show["grade"] = show.apply(
+            lambda r: f"{r['grade']} 🧪" if r.get("experimental") == 1 else r["grade"], axis=1)
     show.insert(0, "Logo", show["side"].map(logo_url))
     _cols = ["Logo", "logged_at", "game", "pick_type", "side", "model_val",
              "market_val_log", "edge_log", "closing_line", "clv", "grade", "profit"]

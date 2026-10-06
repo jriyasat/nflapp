@@ -183,3 +183,23 @@ model adjustment.
 > (|z|=1.54 either way: dead stands; fading it is not significant either).
 > Totals-based tests (over/under) are unaffected. Grading in tracker.py uses
 > its own pick-side convention and was independently verified — unaffected.
+
+## Weather deep-dive: gusts + precipitation (Oct 5, 2026) — ALIVE (paper-trading)
+
+897 outdoor games 2021–25, actual kickoff-hour weather (Open-Meteo archive) vs
+closing totals. Sustained wind: 10–14 mph unders 61.1% (z=+3.77 — production
+−1.2 rule VALIDATED); 15–40 mph unders 55.4% (z=+1.34 — production −2.7 rule
+was calibrated on a 60.9%/n=87 claim; the 5-season rate is softer).
+**Gusts are the sharper instrument:** 20–25 mph unders 60.0% (z=+2.99, n=145);
+25–30 mph unders 70.6% (z=+4.24, n=85); 30+ mph unders 58.3% (z=+1.66 — market
+prices headline weather). Season persistence (gust 25+): 68/69/80% under
+2021–23, **flip 2024 (33%, n=21)**, 68% 2025 — 4 of 5 seasons. Rain ≥1mm:
+unders 64.5% (z=+1.89, n=31 — promising, small).
+
+**Decision (Jeff, Oct 5): PAPER TRADE.** `tracker.log_gust_papers` logs a
+totals UNDER (experimental=1) for every outdoor game with forecast gusts ≥20
+mph and a real books total — graded at close, excluded from the headline
+record, shown on Track Record under 🧪 Paper trades. Adopt as a model
+adjustment only if the live trial confirms. Caveats: backtest used ACTUAL
+gusts, production bets FORECAST gusts (error shrinks edge); 2024 flip warns
+of losing years; 30+ weakening says books partially catch up.

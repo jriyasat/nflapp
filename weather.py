@@ -1,7 +1,11 @@
 """Wind forecasts for outdoor stadiums via Open-Meteo (free, no key).
 
-Validated angle (2021-25, n=87): outdoor games with wind >= 15mph went UNDER
-at 60.9%. Forecasts reach 16 days out; kickoff-hour wind is what matters.
+Validated angles (2021-25, n=897 outdoor, vs closing totals): sustained wind
+10-14 mph unders 61% (production -1.2 rule ✓); sustained 15+ unders 55%
+(production -2.7 rule — softer than the original 60.9%/n=87 calibration);
+GUSTS are the sharper instrument: 20-25 mph unders 60% (z=-2.99), 25-30 mph
+unders 71% (z=-4.24), weakening at 30+ (market prices headline weather).
+Forecasts reach 16 days out; kickoff-hour wind is what matters.
 """
 
 import hashlib
@@ -47,9 +51,8 @@ WIND_FLAG = 15.0
 WIND_NOTE = 10.0
 
 
-def kickoff_wind(stadium, gameday, gametime):
-    """Forecast wind (mph) at kickoff hour, or None if stadium indoor /
-    game beyond the 16-day forecast window / fetch failure."""
+def _kickoff_hourly(stadium, gameday):
+    """Cached hourly forecast payload (wind + gusts) for a stadium-day."""
     coords = STADIUM_WX.get(stadium)
     if not coords or pd.isna(gameday):
         return None
@@ -59,21 +62,28 @@ def kickoff_wind(stadium, gameday, gametime):
     path = os.path.join(dl.CACHE, safe)
     if os.path.exists(path) and time.time() - os.path.getmtime(path) < CACHE_H * 3600:
         data = json.load(open(path))
-    else:
-        try:
-            r = requests.get(OPEN_METEO, params={
-                "latitude": coords[0], "longitude": coords[1],
-                "hourly": "wind_speed_10m", "wind_speed_unit": "mph",
-                "timezone": "America/New_York",
-                "start_date": day, "end_date": day}, timeout=20)
-            if r.status_code != 200:
-                return None
-            data = r.json()
-            json.dump(data, open(path, "w"))
-        except Exception:
+        if "wind_gusts_10m" in (data.get("hourly") or {}):  # legacy caches lack gusts → refetch
+            return data
+    try:
+        r = requests.get(OPEN_METEO, params={
+            "latitude": coords[0], "longitude": coords[1],
+            "hourly": "wind_speed_10m,wind_gusts_10m", "wind_speed_unit": "mph",
+            "timezone": "America/New_York",
+            "start_date": day, "end_date": day}, timeout=20)
+        if r.status_code != 200:
             return None
+        data = r.json()
+        json.dump(data, open(path, "w"))
+        return data
+    except Exception:
+        return None
+
+
+def _at_kickoff(data, gameday, gametime, field):
+    """Field value at kickoff hour (best available hour that day as fallback)."""
+    day = gameday.strftime("%Y-%m-%d")
     times = (data.get("hourly") or {}).get("time") or []
-    winds = (data.get("hourly") or {}).get("wind_speed_10m") or []
+    vals = (data.get("hourly") or {}).get(field) or []
     if not times:
         return None  # beyond forecast window
     try:
@@ -81,18 +91,32 @@ def kickoff_wind(stadium, gameday, gametime):
     except Exception:
         hour = 13
     target = f"{day}T{hour:02d}:00"
-    for t, w in zip(times, winds):
+    for t, w in zip(times, vals):
         if t == target:
             try:
                 return float(w)
             except (TypeError, ValueError):
-                break  # kickoff hour beyond forecast horizon (null) -> day fallback
-    for w in winds:  # best available hour that day (skips nulls at window edge)
+                break
+    for w in vals:
         try:
             return float(w)
         except (TypeError, ValueError):
             continue
     return None
+
+
+def kickoff_wind(stadium, gameday, gametime):
+    """Forecast sustained wind (mph) at kickoff hour, or None if indoor /
+    beyond the 16-day forecast window / fetch failure."""
+    d = _kickoff_hourly(stadium, gameday)
+    return _at_kickoff(d, gameday, gametime, "wind_speed_10m") if d else None
+
+
+def kickoff_gust(stadium, gameday, gametime):
+    """Forecast wind GUSTS (mph) at kickoff hour — the sharper under signal
+    (backtest 2021-25: gust 20-29mph unders 60-70% vs closing totals)."""
+    d = _kickoff_hourly(stadium, gameday)
+    return _at_kickoff(d, gameday, gametime, "wind_gusts_10m") if d else None
 
 
 def wind_for_game(game_row):

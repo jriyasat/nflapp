@@ -264,6 +264,10 @@ def main():
     except Exception:
         espn_odds = {}
     tracker.log_predictions(games, elo, season, week, books_by_abbr, espn_odds, nv)
+    try:
+        tracker.log_gust_papers(games, season, week, books_by_abbr)
+    except Exception:
+        pass
     tracker.grade_predictions(games)
     try:
         for w in range(1, week + 1):
