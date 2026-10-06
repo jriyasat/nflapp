@@ -19,7 +19,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(BASE, "data")
 os.makedirs(CACHE, exist_ok=True)
 
-GAMES_URL = "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv"
+GAMES_URL = "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv.gz"
 ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
 ESPN_INJURIES = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries"
 ODDS_API = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds/"
@@ -53,15 +53,37 @@ def load_games():
     path = os.path.join(CACHE, "games.csv")
 
     def _download():
-        r = requests.get(GAMES_URL, timeout=60)
+        import gzip
+        r = requests.get(GAMES_URL, timeout=60, headers={"User-Agent": "nfl-edge/1.0"})
         r.raise_for_status()
+        raw = gzip.decompress(r.content)  # schedules release dropped plain .csv (Oct 2025)
         tmp = f"{path}.tmp.{os.getpid()}"  # pid-unique: concurrent cron jobs each
         with open(tmp, "wb") as f:          # download to their own tmp (the shared
-            f.write(r.content)              # '.tmp' raced: winner's replace deleted
+            f.write(raw)                    # '.tmp' raced: winner's replace deleted
         os.replace(tmp, path)               # the loser's file → FileNotFoundError)
+        # seed the shared-cache bootstrap so a cold instance (cloud has no disk)
+        # can survive the next upstream outage (2025-10-06 incident)
+        try:
+            import db as _db
+            _db.cache_set("games_csv_bootstrap", raw.decode("utf-8"))
+        except Exception:
+            pass
 
     if not _fresh(path, GAMES_CACHE_H * 3600):
-        _download()
+        try:
+            _download()
+        except Exception:
+            if not os.path.exists(path):
+                # cold instance + upstream down → last resort: shared-cache copy
+                try:
+                    import db as _db
+                    payload, _ = _db.cache_get("games_csv_bootstrap")
+                    if payload:
+                        with open(path, "w") as f:
+                            f.write(payload)
+                except Exception:
+                    pass
+            # a local file (any age) is served stale below — never crash on a hiccup
     mt = os.path.getmtime(path)
     df = _MEMO["games"] if _MEMO.get("games_mt") == mt else None
     # auto-refresh stale results: nflverse posts ~1h after finals. If any game is
