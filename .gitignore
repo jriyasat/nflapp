@@ -1,8 +1,44 @@
+# Python
 .venv/
-data/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Data directories
+data/
+UPLOADS/
+
+# Environment/secrets
+.env
+.env.*
 auth.yaml
 .streamlit/secrets.toml
-UPLOADS/
+
+# OS
 .DS_Store
+
+# Backup files
+*.backup
+*.bak
+*.old
+
+# Debug/test scripts (one-off) - root level
+debug_*.py
+test_*.py
+scan_*.py
+verify_*.py
+tune_iteration.py
+sides_detailed_report.py
+check_rate.py
+fix_*.py
+props_model_new.py
+
+# Redundant scripts (should be in scripts/ if reusable)
+
+# Logs and outputs
+*.log
+
+# Temporary
+tmp/
+temp/
