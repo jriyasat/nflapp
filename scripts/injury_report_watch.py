@@ -30,21 +30,27 @@ def main():
     except Exception:
         return
     cur = {}
+    pos_of = {}
     for team, blk in nv.items():
         for p in blk.get("rows", []):
             st = p.get("status")
             if st in SEV:
-                cur[f"{p['name']} ({team})"] = st
+                key = f"{p['name']} ({team})"
+                cur[key] = st
+                pos_of[key] = p.get("position") or "?"
     old = json.load(open(SNAP)) if os.path.exists(SNAP) else {}
     if cur == old:
         return
+    def _disp(who):
+        pos = pos_of.get(who)
+        return who.replace(")", f", {pos})") if pos else who
     changes = []
     for who, st in sorted(cur.items()):
         prev = old.get(who)
         if prev is None:
-            changes.append(f"• {who}: **{st}** (new)")
+            changes.append(f"• {_disp(who)}: **{st}** (new)")
         elif SEV[st] > SEV.get(prev, 0):
-            changes.append(f"• {who}: {prev} → **{st}** ⬆️")
+            changes.append(f"• {_disp(who)}: {prev} → **{st}** ⬆️")
     improved = [f"• {who}: was {st}, now off report ✅" for who, st in old.items() if who not in cur]
     json.dump(cur, open(SNAP, "w"))
     if not changes and not improved:

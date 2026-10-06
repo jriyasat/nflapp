@@ -106,7 +106,7 @@ def main():
             continue
         new_snap[label] = sig
         lines = [f"• {t}: {n} ({p}) OUT" for t, n, p in inact]
-        sections.append(f"🚫 *{label}* (kickoff {kickoff.strftime('%-I:%M %p')})\n" + "\n".join(lines))
+        sections.append(f"🚫 *{label}* (kickoff {kickoff.strftime('%-I:%M %p')}) [{len(inact)} out]\n" + "\n".join(lines))
 
     json.dump(new_snap, open(SNAP, "w"))
     if not sections:

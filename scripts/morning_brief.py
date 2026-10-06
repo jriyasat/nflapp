@@ -162,7 +162,7 @@ def _board_sections(games, wk, season, week, nv):
                 break
             if p not in keys:
                 keys.append(p)
-        key_txt = ", ".join(f"{p['name']} ({sev_short.get(p['status'], p['status'])}"
+        key_txt = ", ".join(f"{p['name']} ({p.get('position') or '?'}, {sev_short.get(p['status'], p['status'])}"
                             f"{' — ' + p['detail'] if p.get('detail') else ''})" for p in keys)
         inj_lines.append(f"• **{t}** ({len(prows)} designated): {key_txt}")
     if inj_lines:
