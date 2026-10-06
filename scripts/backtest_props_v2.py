@@ -197,9 +197,105 @@ def main():
     w["v1_rec_td"] = w["e_receiving_tds"] * w["opp_WT"]
 
     # ---------------- evaluation ----------------
+    def store_backtest_results(df):
+        """Store backtest predictions in SQLite for later analysis."""
+        import sqlite3
+        DB_PATH = "/app/data/nfl_edge.db"
+        
+        # Market mapping: (market_key, actual_col, v2_pred_col, v1_pred_col, naive_pred_col, opp_mult_col)
+        market_map = [
+            ("rec_yds", "receiving_yards", "v2_rec_yds", "v1_rec_yds", "n_receiving_yards", "opp_WT"),
+            ("rec", "receptions", "v2_rec", "v1_rec", "n_receptions", "opp_WT"),
+            ("rush", "rushing_yards", "v2_rush", "v1_rush", "n_rushing_yards", "opp_RB"),
+            ("pass", "passing_yards", "v2_pass", "v1_pass", "n_passing_yards", "opp_QB"),
+            ("pass_td", "passing_tds", "v2_pass_td", "v1_pass_td", "n_passing_tds", "opp_QB"),
+            ("rush_td", "rushing_tds", "v2_rush_td", "v1_rush_td", "n_rushing_tds", "opp_RB"),
+            ("rec_td", "receiving_tds", "v2_rec_td", "v1_rec_td", "n_receiving_tds", "opp_WT"),
+        ]
+        
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        
+        # Create table if not exists
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS backtest_props (
+                player_id TEXT,
+                player_name TEXT,
+                team TEXT,
+                opponent TEXT,
+                position TEXT,
+                season INTEGER,
+                week INTEGER,
+                market TEXT,
+                actual REAL,
+                predicted_v1 REAL,
+                predicted_v2 REAL,
+                predicted_naive REAL,
+                error_v1 REAL,
+                error_v2 REAL,
+                error_naive REAL,
+                team_line REAL,
+                snap_pct REAL,
+                opp_mult REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (player_id, season, week, market)
+            )
+        """)
+        
+        rows_to_insert = []
+        for market_key, actual_col, v2_col, v1_col, naive_col, opp_mult_col in market_map:
+            # Filter rows where predictions exist for this market
+            mask = df[v2_col].notna() & df[v1_col].notna() & df[naive_col].notna()
+            subset = df[mask].copy()
+            
+            for _, row in subset.iterrows():
+                # Determine opponent multiplier based on position
+                opp_mult = row.get(opp_mult_col, 1.0)
+                if pd.isna(opp_mult):
+                    opp_mult = 1.0
+                
+                rows_to_insert.append((
+                    str(row.get("player_id", "")),
+                    str(row.get("player_display_name", "")),
+                    str(row.get("team", "")),
+                    str(row.get("opponent_team", "")),
+                    str(row.get("position", "")),
+                    int(row.get("season", 0)),
+                    int(row.get("week", 0)),
+                    market_key,
+                    float(row.get(actual_col, 0)),
+                    float(row.get(v1_col, 0)),
+                    float(row.get(v2_col, 0)),
+                    float(row.get(naive_col, 0)),
+                    abs(float(row.get(v1_col, 0)) - float(row.get(actual_col, 0))),
+                    abs(float(row.get(v2_col, 0)) - float(row.get(actual_col, 0))),
+                    abs(float(row.get(naive_col, 0)) - float(row.get(actual_col, 0))),
+                    float(row.get("team_line", 0)) if pd.notna(row.get("team_line")) else None,
+                    float(row.get("offense_pct", 0)) if pd.notna(row.get("offense_pct")) else None,
+                    float(opp_mult),
+                ))
+        
+        # Insert or replace
+        if rows_to_insert:
+            c.executemany("""
+                INSERT OR REPLACE INTO backtest_props
+                (player_id, player_name, team, opponent, position, season, week, market,
+                 actual, predicted_v1, predicted_v2, predicted_naive,
+                 error_v1, error_v2, error_naive, team_line, snap_pct, opp_mult)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, rows_to_insert)
+            conn.commit()
+            print(f"Stored {len(rows_to_insert)} prediction rows in backtest_props table.")
+        else:
+            print("No prediction rows to store.")
+        conn.close()
+    
     ev = w[(w["season"] >= EVAL_FROM) & w["e_receiving_yards"].notna()].copy()
     ev = ev[(ev["position"] == "QB") | (ev["e_offense_pct"].fillna(100) >= SNAP_GATE)]
     print(f"\neval player-weeks (2023-25, role-qualified): {len(ev)}\n")
+    
+    # Store the predictions
+    store_backtest_results(ev)
 
     markets = [("rec_yds", "receiving_yards", ("WR", "TE")),
                ("rec", "receptions", ("WR", "TE")),
