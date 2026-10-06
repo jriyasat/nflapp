@@ -56,6 +56,8 @@ def main():
             sgo_abbr[k] = books
     try:
         nv, _ = dl.nflverse_injuries(max_age_h=2)
+        nv = dl.apply_manual_outs(nv, season, week)
+        nv = dl.apply_sleeper_outs(nv, season, week)
     except Exception:
         nv = {}
     elo = pr.Elo(games)

@@ -39,12 +39,13 @@ def _load_weights():
         if total > 0:
             ypp_weight /= total
             elo_weight /= total
-        return market_weight, nonmarket_weight, ypp_weight, elo_weight
+        sentiment_weight = config.get('sentiment_weight', 0.0)
+        return market_weight, nonmarket_weight, ypp_weight, elo_weight, sentiment_weight
     except Exception:
         # fallback to hardcoded defaults
-        return 0.85, 0.15, 0.85 if USE_YPP else 0.0, 0.15 if USE_YPP else 1.0
+        return 0.85, 0.15, 0.85 if USE_YPP else 0.0, 0.15 if USE_YPP else 1.0, 0.0
 
-MARKET_WEIGHT, NONMARKET_WEIGHT, YPP_WEIGHT, ELO_WEIGHT = _load_weights()
+MARKET_WEIGHT, NONMARKET_WEIGHT, YPP_WEIGHT, ELO_WEIGHT, SENTIMENT_WEIGHT = _load_weights()
 # Totals adjustments (validated, scripts/backtest_totals.py 2021-25)
 REF_ADJ = {"Shawn Hochuli": -1.0, "Ron Torbert": -0.5, "Shawn Smith": -0.5}
 
@@ -148,6 +149,27 @@ def injury_adjustment(team_injury_rows):
     return max(pts, -7.0)
 
 
+
+def sentiment_adjustment(away, home, season, week):
+    """Return points adjustment toward home (positive = toward home) based on sentiment scores."""
+    try:
+        import sentiment
+        away_scores = sentiment.get_sentiment_score(away, season, week, 'combined')
+        home_scores = sentiment.get_sentiment_score(home, season, week, 'combined')
+        if away_scores is None or home_scores is None:
+            return 0.0
+        # composite = confidence + morale - controversy
+        away_comp = away_scores['confidence'] + away_scores['morale'] - away_scores['controversy']
+        home_comp = home_scores['confidence'] + home_scores['morale'] - home_scores['controversy']
+        diff = home_comp - away_comp  # positive => home sentiment stronger
+        # scale diff by SENTIMENT_WEIGHT; each unit diff moves spread by ~2 pts (tunable)
+        adj = diff * SENTIMENT_WEIGHT * 2.0
+        # cap adjustment
+        adj = max(min(adj, 3.0), -3.0)
+        return adj
+    except Exception:
+        return 0.0
+
 def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=None):
     """Full market-blend prediction for one game."""
     away, home = game_row["away_team"], game_row["home_team"]
@@ -167,6 +189,7 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
 
     market = consensus(books)
     market_src = "books" if market.get("n_books") else None
+    print(f"[DEBUG] market n_books={market.get('n_books')}, market_src={market_src}")
     if not market.get("n_books") and espn:
         ph, pa = american_to_prob(espn.get("home_ml")), american_to_prob(espn.get("away_ml"))
         if ph and pa:

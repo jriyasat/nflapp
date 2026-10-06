@@ -346,6 +346,141 @@ def _i(v):
     f = _f(v)
     return int(f) if f is not None else None
 
+SLEEPER_PLAYERS = "https://api.sleeper.app/v1/players/nfl"
+# Jeff's rule: high-confidence benches only — Questionable is too noisy to auto-bench.
+# IR is EXCLUDED on purpose: it's long-term and already market-priced (the spread
+# deduction was calibrated on fresh weekly-report outs; adding −0.4 per season-long
+# IR player would be phantom). The official weekly report omits IR players the same
+# way — and IR players rarely project anyway (no recent stats).
+_SLEEPER_BENCH = {"Out": "Out", "Doubtful": "Doubtful"}
+
+
+def manual_outs():
+    """Jeff's manual bench list (news-known outs before the official report
+    publishes — the Mon-Wed blind spot, e.g. a QB ruled out Monday night).
+    Stored in the shared cache so local, cloud AND crons all see it.
+    [{season, week, team, name, position, status, note, ts}]"""
+    try:
+        import db
+        payload, _ = db.cache_get("manual_outs")
+        return json.loads(payload) if payload else []
+    except Exception:
+        return []
+
+
+def save_manual_outs(entries):
+    import db
+    db.cache_set("manual_outs", json.dumps(entries))
+
+
+def apply_manual_outs(inj, season, week):
+    """Merge manual outs into the nflverse injury dict {team: {rows, label}}.
+    Applies only while a team's official report is STALE (label week behind the
+    override's week) — once the official report for that team catches up,
+    official data rules and the override is ignored. Official rows always win
+    over a manual entry for the same player."""
+    inj = inj or {}
+    for o in manual_outs():
+        try:
+            if int(o.get("season", 0)) != int(season) or int(o.get("week", 0)) != int(week):
+                continue
+        except Exception:
+            continue
+        team = o.get("team")
+        blk = inj.get(team)
+        if blk:
+            try:
+                lbl_season = int(str(blk["label"]).split(" ")[0])
+                lbl_week = int(str(blk["label"]).split(" W")[1].split(" ")[0])
+            except Exception:
+                lbl_season, lbl_week = 0, 0
+            if (lbl_season, lbl_week) >= (int(season), int(week)):
+                continue  # official report is current — override no longer needed
+        else:
+            blk = {"rows": [], "label": "manual override"}
+            inj[team] = blk
+        if any(r.get("name") == o.get("name") for r in blk["rows"]):
+            continue  # official row for this player already present
+        blk["rows"].append({"name": o.get("name"), "position": o.get("position", ""),
+                            "status": o.get("status", "Out"),
+                            "detail": f"manual override — {o.get('note', 'news-reported')}",
+                            "practice": ""})
+    return inj
+
+
+def sleeper_injuries(max_age_h=1):
+    """Fast injury statuses from the Sleeper API (free, keyless) — tracks news
+    within hours, vs the official nflverse report which lags to Wed-Fri for
+    Sunday teams. Returns {team: {name: (status, position, display_status)}}.
+    Cached on disk (the full payload is ~15MB) and memoized by mtime."""
+    path = os.path.join(CACHE, "sleeper_players.json")
+    if not _fresh(path, max_age_h * 3600):
+        try:
+            r = requests.get(SLEEPER_PLAYERS, timeout=120)
+            if r.status_code == 200 and len(r.content) > 1000:
+                tmp = path + ".tmp"
+                with open(tmp, "wb") as f:
+                    f.write(r.content)
+                os.replace(tmp, path)
+        except Exception:
+            pass
+    if not os.path.exists(path):
+        return {}
+    mt = os.path.getmtime(path)
+    if _MEMO.get("sleeper_mt") == mt:
+        return _MEMO["sleeper"]
+    try:
+        with open(path) as f:
+            players = json.load(f)
+    except Exception:
+        return {}
+    out = {}
+    for p in players.values():
+        st = _SLEEPER_BENCH.get(p.get("injury_status") or "")
+        team, name = p.get("team"), p.get("full_name")
+        if not st or not team or not name:
+            continue
+        team = {"LA": "LAR"}.get(team, team)  # defensive; Sleeper already uses LAR
+        disp = "IR" if p.get("injury_status") == "IR" else st
+        out.setdefault(team, {})[name] = (st, p.get("position") or "", disp)
+    _MEMO["sleeper"] = out
+    _MEMO["sleeper_mt"] = mt
+    return out
+
+
+def _report_is_current(blk, season, week):
+    """True when an injury block's label ('2026 W3 (REG)') is at/above season-week."""
+    try:
+        lbl_season = int(str(blk["label"]).split(" ")[0])
+        lbl_week = int(str(blk["label"]).split(" W")[1].split(" ")[0])
+        return (lbl_season, lbl_week) >= (int(season), int(week))
+    except Exception:
+        return False
+
+
+def apply_sleeper_outs(inj, season, week):
+    """Merge fast Sleeper Out/IR/Doubtful statuses into the injury dict. Same
+    staleness rule as manual outs: only while a team's OFFICIAL report is behind
+    the current week, and never over an existing row (official AND manual
+    entries always win). Rows are labeled 'via Sleeper (unofficial)' so displays
+    stay honest about the source. Precedence: official > manual > Sleeper."""
+    inj = inj or {}
+    for team, players in sleeper_injuries().items():
+        blk = inj.get(team)
+        if blk:
+            if _report_is_current(blk, season, week):
+                continue  # official report caught up — Sleeper no longer needed
+        else:
+            blk = {"rows": [], "label": "via Sleeper (unofficial)"}
+            inj[team] = blk
+        existing = {r.get("name") for r in blk["rows"]}
+        for name, (st, pos, disp) in players.items():
+            if name in existing:
+                continue
+            blk["rows"].append({"name": name, "position": pos, "status": st,
+                                "detail": f"{disp} — via Sleeper (unofficial)",
+                                "practice": ""})
+    return inj
 
 def _sgo_event_books(e):
     """Parse one SGO event into ((away_long, home_long), books) or None."""
@@ -773,8 +908,14 @@ def nflverse_injuries(season=None, max_age_h=1):
     games = load_games()
     if season is None:
         season = int(games.loc[games["result"].isna(), "season"].max())
+    # Never serve last season's file once the current season has started — a failed
+    # fetch must surface as "unavailable", not as ancient mislabeled data (the 2026
+    # file 404'd once mid-week and the app briefly showed 2025 playoff injuries).
+    sg = games[games["season"] == season]
+    started = bool(sg["result"].notna().any()) or \
+        bool((pd.to_datetime(sg["gameday"], errors="coerce") <= pd.Timestamp.now()).any())
     df = None
-    for s in (season, season - 1):
+    for s in ((season,) if started else (season, season - 1)):
         path = os.path.join(CACHE, f"nflverse_injuries_{s}.csv")
         if not _fresh(path, max_age_h * 3600):
             try:

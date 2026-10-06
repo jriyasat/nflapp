@@ -31,17 +31,15 @@ class YPPModel:
         
     def _load_team_stats(self):
         """
-        Load team stats from shared_cache table 'sgo_team_stats'.
-        Falls back to 'team_ypp_history' (nflverse‑pbp aggregated).
+        Load team stats from shared_cache table 'team_ypp_history' (nflverse‑pbp aggregated).
+        The sgo_team_stats fallback is removed – single‑source rule.
         Returns a pandas DataFrame with columns including 'team', 'net_ypp', 'date'.
-        If both caches empty, returns empty DataFrame.
+        If cache empty, returns empty DataFrame.
         """
-        # try sgo_team_stats first
-        raw, _ = db.cache_get('sgo_team_stats')
+        raw, _ = db.cache_get('team_ypp_history')
         if raw is None:
-            raw, _ = db.cache_get('team_ypp_history')
-            if raw is None:
-                return pd.DataFrame()
+            # No fallback – single‑source rule
+            return pd.DataFrame()
         try:
             rows = json.loads(raw)
         except Exception:
@@ -95,7 +93,7 @@ class YPPModel:
     def predict_spread(self, away_team, home_team, date=None):
         """
         Predict point spread (home team advantage) based on YPP differential model.
-        Returns: predicted spread from home perspective (positive = home favored).
+        Returns: predicted spread from home perspective (negative = home favored).
         """
         away_net, away_n = self.get_team_ypp_stats(away_team, date)
         home_net, home_n = self.get_team_ypp_stats(home_team, date)
@@ -106,8 +104,8 @@ class YPPModel:
             ypp_diff = 0.0
         else:
             ypp_diff = home_net - away_net
-        
-        spread = self.alpha + self.beta * ypp_diff
+
+        spread = - (self.alpha + self.beta * ypp_diff)
         return spread
     
     def predict_proba(self, away_team, home_team, date=None):

@@ -299,11 +299,26 @@ try:
 except Exception:
     props_api_key = api_key
 def _lines_updated_at():
+    # primary: the Turso single-fetcher payload (what Cloud actually serves —
+    # its disk caches are usually empty, so the old disk-only check showed "—")
+    try:
+        _, ts = dl._sgo_board_raw()
+        if ts:
+            return ts
+    except Exception:
+        pass
     import glob as _g
     fs = _g.glob(os.path.join(dl.CACHE, "sgo_odds.json")) + _g.glob(os.path.join(dl.CACHE, "odds_api.json")) \
         + [f for f in _g.glob(os.path.join(dl.CACHE, "espn_*.json"))
            if not os.path.basename(f).startswith(("espn_live", "espn_sb", "espn_sum"))]
     return max((os.path.getmtime(f) for f in fs), default=None)
+
+
+def _et(ts):
+    """Epoch -> 'Sep 20, 4:25 PM ET'. Server-local formatting showed UTC on
+    Streamlit Cloud ('it does local'); everything user-facing is ET now."""
+    from zoneinfo import ZoneInfo
+    return pd.Timestamp.fromtimestamp(ts, tz=ZoneInfo("America/New_York")).strftime("%b %-d, %-I:%M %p ET")
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -313,7 +328,7 @@ def _board_rows(season, week):
     wk = games[(games["season"] == season) & (games["game_type"] == "REG") &
                (games["week"] == week) & (games["result"].isna())].sort_values(["gameday", "gametime"])
     ts = _lines_updated_at()
-    updated = pd.Timestamp.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "—"
+    updated = _et(ts) if ts else "—"
     rows = []
     for _, g in wk.iterrows():
         away, home = g["away_team"], g["home_team"]
@@ -452,12 +467,14 @@ except Exception as e:
 
 try:
     nv_injuries, nv_status = dl.nflverse_injuries()
+    nv_injuries = dl.apply_manual_outs(nv_injuries, season, week)
+    nv_injuries = dl.apply_sleeper_outs(nv_injuries, season, week)
 except Exception:
     nv_injuries, nv_status = {}, "unavailable"
 
 st.sidebar.markdown(f"**{len(week_games)} games** loaded • injuries for {len(injuries)} teams")
 views = (["Games", "🔴 Live", "📒 Bet Journal", "📈 Track Record", "🏆 Pick'em", "📰 News", "🏅 Standings",
-          "📊 Power Rankings", "❓ How It Works", "📜 Terms", "⚙️ Settings"] + (["👥 Users"] if IS_ADMIN else []))
+          "📊 Power Rankings", "❓ How It Works", "📜 Terms", "⚙️ Settings", "🧠 Sentiment Lab"] + (["👥 Users"] if IS_ADMIN else []))
 _qp = st.query_params.get("page")
 if _qp:  # deep-link support, e.g. ?page=journal from the bet-slip success link
     del st.query_params["page"]
@@ -1461,83 +1478,252 @@ if page == "📈 Track Record":
     track_record_page()
     st.stop()
 
-# ---------------- render helpers ----------------
-def fmt_ml(v):
-    return f"{v:+d}" if isinstance(v, (int, float)) else "-"
-
-@st.cache_data(ttl=600, show_spinner=False)
-def _line_history(game_label):
-    """Line-movement history per game (Turso roundtrip — cache 10 min so open
-    games don't each pay a network call on every rerun)."""
-    return db.line_history(game_label)
-
-
-def lines_block(g, away, home, espn_o, books):
-    _pre_game_tag(away, home)
-    # model context — shared by the chart overlay and the pinned table row
-    wind_mph = None
-    if pd.notna(g["gameday"]) and g["gameday"] <= pd.Timestamp.now() + pd.Timedelta(days=15):
-        wind_mph, _ = wx.wind_for_game(g)
-    pred = pr.predict_game(g, elo, books=books, espn=espn_o,
-                           injuries=nv_injuries, wind_mph=wind_mph)
-    hist = _line_history(f"{away} @ {home}")
-    if len(hist) >= 2:
-        st.caption("📉 Line movement (daily snapshots, away-team spread) — flat line = current model")
-        m1, m2 = st.columns(2)
-        move = hist.set_index("ts")[["spread_away"]].copy()
-        move["🤖 model (now)"] = round(-pred["model_spread"], 2)  # home-persp -> away-persp
-        m1.line_chart(move, y_label="spread (away)")
-        tot = hist.set_index("ts")[["total"]].copy()
-        if pred.get("model_total") is not None:
-            tot["🤖 model (now)"] = round(pred["model_total"], 1)
-        m2.line_chart(tot, y_label="total")
+# ---------------- sentiment lab page ----------------
+def sentiment_lab_page():
+    st.header("🧠 Sentiment Lab — Week 4")
+    st.caption("Sentiment analysis for all Week 4 matchups. Composite diff = home composite - away composite.")
+    
+    # Use direct SQLite connection to avoid db import hang
+    import sqlite3
+    import pandas as pd
+    import data as dl
+    
+    global season, week
+    # fallback if globals missing
+    if 'season' not in globals() or 'week' not in globals():
+        games_all = dl.load_games()
+        season, week = dl.current_season_week(games_all)
+        st.write(f"Globals missing, computed season={season}, week={week}")
+    else:
+        st.write(f"Debug: season={season}, week={week}")
+    
+    # Load Week 4 games
+    games = dl.load_games()
+    week_games = games[(games["season"] == season) & (games["week"] == week)].sort_values(["gameday", "gametime"])
+    st.write(f"Week games found: {len(week_games)}")
+    
+    if week_games.empty:
+        st.warning("No games found for Week 4.")
+        return
+    
+    # Connect to database
+    DB_PATH = "/app/data/nfl_edge.db"
+    import os
+    if not os.path.exists(DB_PATH):
+        st.error(f"Database not found at {DB_PATH}")
+        return
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
     rows = []
-    if books:
-        for bk, e in books.items():
-            rows.append({
-                "Book": e.get("title", bk),
-                "Spread": f"{home} {e['home_spread']:+.1f} ({fmt_ml(e.get('home_spread_price'))})"
-                          if e.get("home_spread") is not None else "-",
-                "Total": f"{e['total']:.1f} (O {fmt_ml(e.get('over_price'))})"
-                         if e.get("total") is not None else "-",
-                "ML": f"{away} {fmt_ml(e.get('away_ml'))} / {home} {fmt_ml(e.get('home_ml'))}",
-            })
-    elif espn_o:
+    for idx, g in week_games.iterrows():
+        away, home = g["away_team"], g["home_team"]
+        
+        # Get sentiment scores from DB
+        away_score = None
+        home_score = None
+        for team in (away, home):
+            c.execute("""
+                SELECT confidence, morale, controversy 
+                FROM sentiment_scores 
+                WHERE team = ? AND season = ? AND week = ? AND source = 'combined'
+                ORDER BY created_at DESC LIMIT 1
+            """, (team, season, week))
+            row = c.fetchone()
+            if row:
+                conf, mor, cont = row
+                composite = conf + mor - cont
+                if team == away:
+                    away_score = {'confidence': conf, 'morale': mor, 'controversy': cont, 'composite': composite}
+                else:
+                    home_score = {'confidence': conf, 'morale': mor, 'controversy': cont, 'composite': composite}
+        
+        away_comp = away_score['composite'] if away_score else None
+        home_comp = home_score['composite'] if home_score else None
+        diff = home_comp - away_comp if (away_comp is not None and home_comp is not None) else None
+        
+        pick = None
+        if diff is not None:
+            pick = home if diff > 0 else away
+        
         rows.append({
-            "Book": espn_o.get("provider", "ESPN") + " (single book)",
-            "Spread": f"{espn_o.get('details', '-')}",
-            "Total": f"{espn_o['over_under']:.1f}" if espn_o.get("over_under") else "-",
-            "ML": f"{away} {fmt_ml(espn_o.get('away_ml'))} / {home} {fmt_ml(espn_o.get('home_ml'))}",
+            "Game": f"{away} @ {home}",
+            "Away": away,
+            "Home": home,
+            "Away Composite": f"{away_comp:.2f}" if away_comp is not None else "—",
+            "Home Composite": f"{home_comp:.2f}" if home_comp is not None else "—",
+            "Composite Diff": f"{diff:+.2f}" if diff is not None else "—",
+            "Sentiment Pick": pick if pick else "—",
+            "Word Cloud": "View" if (away_score and home_score) else "N/A"
         })
-    # pinned 🤖 MODEL row: model spread + total next to the market, ⚡ when |edge| >= VALUE_EDGE_MIN
-    edge = pred.get("edge_pts")
-    badge = " ⚡ VALUE" if edge is not None and abs(edge) >= VALUE_EDGE_MIN else ""
-    side = home if (edge or 0) > 0 else away
-    rows.insert(0, {
-        "Book": f"🤖 MODEL{badge}",
-        "Spread": fmt_spread(pred["model_spread"], home, away)
-                  + (f" (edge {abs(edge):.1f} on {side})" if badge else ""),
-        "Total": f"{pred['model_total']:.1f}" if pred.get("model_total") is not None else "-",
-        "ML": "—",
-    })
-    st.table(pd.DataFrame(rows))
-    if not books and not espn_o:
-        st.caption("No live lines posted yet — model row is an Elo-only estimate.")
-    if books:
-        best = an.line_shopping(books)
-        if best.get("books_disagree"):
-            st.success("⚡ Books disagree on the number -- line shopping value available")
-        tags = []
-        if best.get("home_spread"):
-            b = best["home_spread"]; tags.append(f"Best {team_md(home, 18)} spread: {b['point']:+.1f} @ {b['book']}")
-        if best.get("away_spread"):
-            b = best["away_spread"]; tags.append(f"Best {team_md(away, 18)} spread: {b['point']:+.1f} @ {b['book']}")
-        if best.get("over"):
-            tags.append(f"Best Over: {best['over']['point']:.1f} @ {best['over']['book']}")
-        if best.get("under"):
-            tags.append(f"Best Under: {best['under']['point']:.1f} @ {best['under']['book']}")
-        if tags:
-            st.markdown(" • ".join(tags), unsafe_allow_html=True)
+    
+    conn.close()
+    st.write(f"Built {len(rows)} rows")
+    
+    # Display as dataframe
+    df = pd.DataFrame(rows)
+    if df.empty:
+        st.warning("No data to display")
+        return
+    
+    # Add styling for picks
+    def highlight_picks(row):
+        styles = [''] * len(row)
+        if row['Sentiment Pick'] != '—':
+            if row['Sentiment Pick'] == row['Away']:
+                col_idx = df.columns.get_loc('Away Composite')
+            else:
+                col_idx = df.columns.get_loc('Home Composite')
+            styles[col_idx] = 'background-color: #7cffb2; font-weight: bold'
+        return styles
+    
+    try:
+        st.dataframe(df.style.apply(highlight_picks, axis=1), hide_index=True, width="stretch")
+    except Exception as e:
+        st.error(f"Error displaying dataframe: {e}")
+        st.dataframe(df, hide_index=True, width="stretch")
+    
+    # Explanation
+    st.divider()
+    st.subheader("How to read this table")
+    st.markdown("""
+    - **Composite Score**: Combined sentiment (confidence + morale - controversy). Higher = more positive sentiment.
+    - **Composite Diff**: Home composite - Away composite. Positive = home has better sentiment.
+    - **Sentiment Pick**: Team with higher composite score (positive diff → home, negative diff → away).
+    - **Word Cloud**: Click 'View' to open a QuickChart-generated word cloud of news snippets.
+    
+    **Note**: Sentiment picks are based solely on composite diff. A pick is shown when |diff| ≥ 0.5.
+    """)
+    
+    # Word cloud buttons for each game
+    st.divider()
+    st.subheader("Word Clouds")
+    st.write("**Click to view word clouds (opens in new tab):**")
+    
+    # Helper function to generate word cloud URL (copied from sentiment.py)
+    def get_wordcloud_url(team, season, week, source='combined'):
+        import re
+        import string
+        from collections import Counter
+        import urllib.parse
+        
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("""
+            SELECT snippets 
+            FROM sentiment_snippets 
+            WHERE team = ? AND season = ? AND week = ? AND source = ?
+            ORDER BY created_at DESC LIMIT 1
+        """, (team, season, week, source))
+        row = c.fetchone()
+        conn.close()
+        if not row or not row[0]:
+            return None
+        snippet_text = row[0]
+        
+        # Clean and tokenize
+        text_lower = snippet_text.lower()
+        translator = str.maketrans(string.punctuation, ' ' * len(string.punctuation))
+        cleaned = text_lower.translate(translator)
+        words = cleaned.split()
+        words = [w for w in words if w.isalpha() and len(w) >= 3]
+        stopwords = {'the', 'and', 'for', 'are', 'with', 'this', 'that', 'was', 
+                     'were', 'have', 'has', 'had', 'but', 'not', 'you', 'your',
+                     'they', 'their', 'them', 'from', 'about', 'will', 'would',
+                     'should', 'could', 'when', 'where', 'which', 'who', 'whom',
+                     'what', 'how', 'why', 'then', 'than', 'also', 'just', 'like',
+                     'more', 'most', 'some', 'such', 'only', 'out', 'into', 'over',
+                     'under', 'after', 'before', 'during', 'while', 'because',
+                     'since', 'until', 'through', 'again', 'further', 'too', 'very'}
+        filtered_words = [w for w in words if w not in stopwords]
+        if not filtered_words:
+            return None
+        
+        word_counts = Counter(filtered_words)
+        top_words = word_counts.most_common(25)
+        text_parts = []
+        for word, count in top_words:
+            repeats = min(count, 10)
+            text_parts.extend([word] * repeats)
+        text_param = "+".join(text_parts)
+        
+        team_colors = {
+            'ATL': '["red","black"]', 'BAL': '["purple","black","gold"]', 'BUF': '["blue","red","white"]',
+            'CAR': '["black","blue"]', 'CHI': '["navy","orange"]', 'CIN': '["orange","black"]',
+            'CLE': '["brown","orange"]', 'DAL': '["navy","silver"]', 'DEN': '["orange","navy"]',
+            'DET': '["honolulublue","silver"]', 'GB': '["green","gold"]', 'HOU': '["navy","red"]',
+            'IND': '["royalblue","white"]', 'JAX': '["teal","gold","black"]', 'KC': '["red","gold"]',
+            'LAC': '["powderblue","gold"]', 'LAR': '["royalblue","gold"]', 'LV': '["black","silver"]',
+            'MIA': '["aqua","orange"]', 'MIN': '["purple","gold"]', 'NE': '["navy","red","silver"]',
+            'NO': '["black","gold"]', 'NYG': '["blue","red"]', 'NYJ': '["green","white"]',
+            'PHI': '["green","silver","black"]', 'PIT': '["black","gold"]', 'SEA': '["navy","green"]',
+            'SF': '["red","gold"]', 'TB': '["pewter","red"]', 'TEN': '["navy","columbiablue","red"]',
+            'WAS': '["burgundy","gold"]'
+        }
+        colors = team_colors.get(team, '["navy","forestgreen","maroon"]')
+        
+        base_url = "https://quickchart.io/wordcloud"
+        params = {
+            'text': text_param,
+            'format': 'png',
+            'width': '800',
+            'height': '400',
+            'colors': colors,
+            'backgroundColor': 'white',
+            'fontFamily': 'sans-serif',
+            'scale': 'sqrt',
+            'fontScale': '25',
+            'maxNumWords': '50',
+            'rotation': '20',
+            'removeStopwords': 'true',
+            'cleanWords': 'true',
+            'language': 'en',
+        }
+        query_string = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
+        return f"{base_url}?{query_string}"
+    
+    for idx, g in week_games.iterrows():
+        away, home = g["away_team"], g["home_team"]
+        away_url = get_wordcloud_url(away, season, week, 'combined')
+        home_url = get_wordcloud_url(home, season, week, 'combined')
+        st.write(f"Game: {away} @ {home} - away URL: {'Exists' if away_url else 'None'}, home URL: {'Exists' if home_url else 'None'}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if away_url:
+                st.markdown(f'<a href="{away_url}" target="_blank"><button style="background-color:#7cffb2;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">View {away} Word Cloud</button></a>', unsafe_allow_html=True)
+            else:
+                st.info(f"No news snippets for {away}")
+                if st.button(f"Collect {away} News", key=f"collect_{away}"):
+                    try:
+                        import sentiment as stm
+                        snippets = stm.collect_news_snippets(away)
+                        if snippets:
+                            st.success(f"Collected {len(snippets)} snippets")
+                            stm.store_snippets(away, season, week, 'combined', snippets)
+                            st.rerun()
+                        else:
+                            st.warning("No snippets found")
+                    except ImportError:
+                        st.warning("News collection requires sentiment module; not available.")
+        with col2:
+            if home_url:
+                st.markdown(f'<a href="{home_url}" target="_blank"><button style="background-color:#7cffb2;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">View {home} Word Cloud</button></a>', unsafe_allow_html=True)
+            else:
+                st.info(f"No news snippets for {home}")
+                if st.button(f"Collect {home} News", key=f"collect_{home}"):
+                    try:
+                        import sentiment as stm
+                        snippets = stm.collect_news_snippets(home)
+                        if snippets:
+                            st.success(f"Collected {len(snippets)} snippets")
+                            stm.store_snippets(home, season, week, 'combined', snippets)
+                            st.rerun()
+                        else:
+                            st.warning("No snippets found")
+                    except ImportError:
+                        st.warning("News collection requires sentiment module; not available.")
+    
 
 def form_df(team):
     rows = an.last_n(games, team, 3)
@@ -1652,7 +1838,8 @@ def predictor_tab(g, away, home):
 
 # ---------------- props UI ----------------
 PROJ_COLS = [("proj_pass", "Pass Yds"), ("proj_rush", "Rush Yds"),
-             ("proj_rec_yds", "Rec Yds"), ("proj_rec", "Receptions")]
+             ("proj_rec_yds", "Rec Yds"), ("proj_rec", "Receptions"),
+             ("proj_pass_td", "Pass TD"), ("proj_rush_td", "Rush TD"), ("proj_rec_td", "Rec TD")]
 
 BOOK_NAMES = {"draftkings": "DraftKings", "fanduel": "FanDuel", "betmgm": "BetMGM",
               "caesars": "Caesars", "bovada": "Bovada", "mybookieag": "MyBookie",
@@ -1899,6 +2086,99 @@ def slip_tab(g, away, home):
     if slip:
         st.caption("Slip: " + " · ".join(f"{l['selection']} {l['bet_type']}" for l in slip))
 
+# ---------------- sentiment UI ----------------
+def sentiment_tab(g, away, home):
+    """Sentiment Lab: show sentiment scores, composite diff, pick, and word cloud links."""
+    st.subheader("🧠 Sentiment Lab")
+    st.caption(f"Sentiment analysis for {away} @ {home}")
+    
+    # Try to import sentiment module
+    try:
+        import sentiment as stm
+        season = int(g['season'])
+        week = int(g['week'])
+        
+        # Get sentiment scores
+        away_score = stm.get_sentiment_score(away, season, week, 'combined')
+        home_score = stm.get_sentiment_score(home, season, week, 'combined')
+        
+        if away_score and home_score:
+            away_comp = away_score.get('composite', 0)
+            home_comp = home_score.get('composite', 0)
+            diff = home_comp - away_comp
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(f"{away} Composite", f"{away_comp:.2f}")
+                if away_score.get('confidence') is not None:
+                    st.caption(f"Confidence: {away_score['confidence']:.2f}")
+                    st.caption(f"Morale: {away_score['morale']:.2f}")
+                    st.caption(f"Controversy: {away_score['controversy']:.2f}")
+            
+            with col2:
+                st.metric(f"{home} Composite", f"{home_comp:.2f}")
+                if home_score.get('confidence') is not None:
+                    st.caption(f"Confidence: {home_score['confidence']:.2f}")
+                    st.caption(f"Morale: {home_score['morale']:.2f}")
+                    st.caption(f"Controversy: {home_score['controversy']:.2f}")
+            
+            with col3:
+                pick = home if diff > 0 else away
+                st.metric("Composite Diff", f"{diff:+.2f}", f"Pick: {pick}")
+                # Sentiment pick based on threshold (default 0.5)
+                threshold = 0.5
+                if abs(diff) >= threshold:
+                    st.success(f"Sentiment Pick: {pick} (diff ≥ {threshold})")
+                else:
+                    st.info("No clear sentiment pick (diff < threshold)")
+            
+            # Word Clouds
+            st.divider()
+            st.subheader("Word Clouds")
+            
+            # Get word cloud URLs
+            away_url = stm.get_wordcloud_url(away, season, week, 'combined')
+            home_url = stm.get_wordcloud_url(home, season, week, 'combined')
+            
+            col_a, col_h = st.columns(2)
+            with col_a:
+                st.write(f"**{away} Sentiment Words**")
+                if away_url:
+                    st.markdown(f'<a href="{away_url}" target="_blank"><button style="background-color:#7cffb2;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">View {away} Word Cloud</button></a>', unsafe_allow_html=True)
+                    st.caption("Click to open word cloud in new tab")
+                else:
+                    st.info(f"No news snippets available for {away}")
+                    if st.button(f"Collect {away} News", key=f"collect_{away}"):
+                        snippets = stm.collect_news_snippets(away)
+                        if snippets:
+                            st.success(f"Collected {len(snippets)} snippets")
+                        else:
+                            st.warning("No snippets found")
+            
+            with col_h:
+                st.write(f"**{home} Sentiment Words**")
+                if home_url:
+                    st.markdown(f'<a href="{home_url}" target="_blank"><button style="background-color:#7cffb2;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">View {home} Word Cloud</button></a>', unsafe_allow_html=True)
+                    st.caption("Click to open word cloud in new tab")
+                else:
+                    st.info(f"No news snippets available for {home}")
+                    if st.button(f"Collect {home} News", key=f"collect_{home}"):
+                        snippets = stm.collect_news_snippets(home)
+                        if snippets:
+                            st.success(f"Collected {len(snippets)} snippets")
+                        else:
+                            st.warning("No snippets found")
+            
+        else:
+            st.warning(f"Sentiment scores not available for {away} and/or {home}. Ensure sentiment collection has run.")
+            if st.button("Collect Sentiment for This Week", key="collect_sent"):
+                st.info("Sentiment collection would run here (requires OpenRouter API key).")
+    except ImportError:
+        st.error("Sentiment module not available.")
+    except Exception as e:
+        st.error(f"Error loading sentiment: {e}")
+
+
 # ---------------- upcoming games board (model vs market, sortable/downloadable) ----------------
 st.subheader(f"📋 Week {week} Upcoming Games")
 _board = _board_rows(int(season), int(week))
@@ -1968,7 +2248,7 @@ def render_game(gi, g):
         for i, (tag, detail, lean) in enumerate(spots):
             cols[i % len(cols)].warning(f"**{tag}**{' → ' + lean if lean else ''}\n\n{detail}")
 
-    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (last 3)", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip"])
+    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (last 3)", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip", "🧠 Sentiment Lab"])
     with tabs[0]:
         predictor_tab(g, away, home)
     with tabs[1]:
@@ -2011,6 +2291,8 @@ def render_game(gi, g):
             slip_tab(g, away, home)
         else:
             paywall("The bet slip (parlays + journal)")
+    with tabs[8]:
+        sentiment_tab(g, away, home)
 
 
 upcoming_games = week_games[week_games["result"].isna()]

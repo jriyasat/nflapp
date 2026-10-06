@@ -67,7 +67,7 @@ TEAM_TZ = {
     "ARI": "MT", "ATL": "ET", "BAL": "ET", "BUF": "ET", "CAR": "ET", "CHI": "CT",
     "CIN": "ET", "CLE": "ET", "DAL": "CT", "DEN": "MT", "DET": "ET", "GB": "CT",
     "HOU": "CT", "IND": "ET", "JAX": "ET", "KC": "CT", "LV": "PT", "LAC": "PT",
-    "LA": "PT", "MIA": "ET", "MIN": "CT", "NE": "ET", "NO": "CT", "NYG": "ET",
+    "LAR": "PT", "MIA": "ET", "MIN": "CT", "NE": "ET", "NO": "CT", "NYG": "ET",
     "NYJ": "ET", "PHI": "ET", "PIT": "ET", "SF": "PT", "SEA": "PT", "TB": "ET",
     "TEN": "CT", "WAS": "ET",
 }

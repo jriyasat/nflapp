@@ -11,6 +11,7 @@ import json
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import time
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -61,6 +62,7 @@ def fetch_historical(start_date='2024-01-01', api_key=None):
         if len(events) < limit:
             break
         print(f"Fetched {offset} events...")
+        time.sleep(5)
     
     print(f"Total events: {len(all_events)}")
     

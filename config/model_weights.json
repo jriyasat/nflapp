@@ -1,14 +1,14 @@
 {
-  "market_weight": 0.85,
-  "snap_share_weight": 0.65,
-  "target_share_weight": 0.5,
-  "ryoe_multiplier": 1.0,
-  "separation_multiplier": 1.0,
-  "cushion_multiplier": 1.0,
-  "pass_volume_factor": 0.95,
-  "rush_volume_factor": 1.15,
-  "ypp_weight": 0.85,
-  "elo_weight": 0.15000000000000002,
-  "admin_secret": "admin123",
-  "superadmin_secret": "superadmin123"
+  "snap_share_weight": 2.0,
+  "target_share_weight": 2.0,
+  "ryoe_multiplier": 1.5,
+  "separation_multiplier": 2.0,
+  "cushion_multiplier": 2.0,
+  "pass_volume_factor": 2.0,
+  "rush_volume_factor": 2.0,
+  "ypp_weight": 0.25,
+  "elo_weight": 0.75,
+  "sentiment_weight": 0.09,
+  "sentiment_only_threshold": 1.5,
+  "admin_secret": "admin123"
 }

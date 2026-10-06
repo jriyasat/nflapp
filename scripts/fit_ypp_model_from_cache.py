@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """
-Fit YPP model using team_ypp_history (nflverse PBP aggregated) and games.csv spreads.
-Saves coefficients to data/model_fits/ypp_coefficients.json.
+Fit linear model: yards-per-play differential vs. spread residual.
+Uses team_ypp_history cache (nflverse stats_team aggregated) and nflverse games.csv.
+Outputs regression coefficients (alpha, beta) and validation metrics.
 """
-
 import os
 import sys
 import json
@@ -19,21 +19,25 @@ import data as dl
 import db
 
 def load_team_ypp_history():
-    """Load team_ypp_history from Turso shared_cache."""
+    """Load team-week stats from shared_cache 'team_ypp_history'."""
     raw, _ = db.cache_get('team_ypp_history')
     if raw is None:
-        raise ValueError("team_ypp_history not found in shared_cache")
+        # fallback to local JSON
+        backup_path = os.path.join(dl.CACHE, 'team_ypp_history.json')
+        if os.path.exists(backup_path):
+            with open(backup_path, 'r') as f:
+                raw = f.read()
+        else:
+            raise ValueError('team_ypp_history not found in cache or local backup')
     rows = json.loads(raw)
     df = pd.DataFrame(rows)
-    # Ensure numeric columns
-    num_cols = ['season', 'week', 'off_yards', 'off_plays', 'def_yards_allowed', 'def_plays',
-                'off_ypp', 'def_ypp', 'net_ypp']
-    for col in num_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-    # Convert date string to date
+    # Convert date string to datetime
     if 'date' in df.columns:
         df['date'] = pd.to_datetime(df['date']).dt.date
+    # Ensure numeric columns
+    for col in ['season', 'week', 'off_yards', 'off_plays', 'def_yards_allowed', 'def_plays', 'off_ypp', 'def_ypp', 'net_ypp']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
     return df
 
 def load_nflverse_games():
@@ -48,42 +52,34 @@ def load_nflverse_games():
         raise ValueError(f'Missing columns in games.csv: {missing}')
     return df[cols]
 
+def map_team_name_to_abbr(name):
+    """Map team abbreviation to uppercase, replace LA->LAR."""
+    name = str(name).upper()
+    if name == 'LA':
+        return 'LAR'
+    return name
+
 def merge_ypp_games(ypp_df, games_df):
-    """
-    Merge team_ypp_history with games.csv.
-    ypp_df has one row per team-game (team vs opponent).
-    We need to pivot to get home/away net_ypp per game.
-    """
-    # Ensure team abbreviations match (already uppercase)
-    ypp_df['team'] = ypp_df['team'].str.upper()
-    ypp_df['opponent'] = ypp_df['opponent'].str.upper()
-    
-    # Split into home and away stats
-    # We'll join games_df with ypp_df on season, week, home_team = team (home perspective)
-    # and away_team = opponent (away perspective)
-    # But we need net_ypp for home team (team) and away team (opponent)
-    # So we can create two temporary DataFrames: home_stats and away_stats.
-    home_stats = ypp_df.rename(columns={'team': 'home_team', 'opponent': 'away_team', 'net_ypp': 'home_net_ypp'})
-    away_stats = ypp_df.rename(columns={'team': 'away_team', 'opponent': 'home_team', 'net_ypp': 'away_net_ypp'})
-    
-    # Merge games with home_stats
-    merged = pd.merge(games_df,
-                      home_stats[['season', 'week', 'home_team', 'away_team', 'home_net_ypp']],
-                      on=['season', 'week', 'home_team', 'away_team'],
-                      how='inner')
-    # Merge again with away_stats to get away_net_ypp
-    merged = pd.merge(merged,
-                      away_stats[['season', 'week', 'home_team', 'away_team', 'away_net_ypp']],
-                      on=['season', 'week', 'home_team', 'away_team'],
-                      how='inner')
-    
-    # Drop duplicates (if any)
-    merged = merged.drop_duplicates(subset=['season', 'week', 'home_team', 'away_team'])
+    """Merge YPP team stats with nflverse games."""
+    # Create home and away dataframes
+    ypp_df['team_abbr'] = ypp_df['team'].apply(map_team_name_to_abbr)
+    # We need each game row with home and away stats
+    # Create mapping: (season, week, team_abbr) -> net_ypp
+    team_map = ypp_df.set_index(['season', 'week', 'team_abbr'])['net_ypp'].to_dict()
+    # Apply to home and away columns
+    games_df['home_net_ypp'] = games_df.apply(
+        lambda row: team_map.get((row['season'], row['week'], map_team_name_to_abbr(row['home_team'])), np.nan), axis=1)
+    games_df['away_net_ypp'] = games_df.apply(
+        lambda row: team_map.get((row['season'], row['week'], map_team_name_to_abbr(row['away_team'])), np.nan), axis=1)
+    # Drop rows where either net_ypp missing
+    merged = games_df.dropna(subset=['home_net_ypp', 'away_net_ypp', 'spread_line'])
     return merged
 
 def fit_model(merged_df):
-    """Fit linear model: spread_line = α + β * (home_net_ypp - away_net_ypp)."""
+    """Fit linear model: spread_residual = α + β * strength_diff."""
+    # Compute strength differential = home_net_ypp - away_net_ypp
     merged_df['strength_diff'] = merged_df['home_net_ypp'] - merged_df['away_net_ypp']
+    # Spread_line is home spread (negative means home favored)
     X = merged_df[['strength_diff']].values
     y = merged_df['spread_line'].values
     
@@ -92,8 +88,12 @@ def fit_model(merged_df):
     
     alpha = model.intercept_
     beta = model.coef_[0]
+    
+    # Predictions
     y_pred = model.predict(X)
     residuals = y - y_pred
+    
+    # Metrics
     mae = np.mean(np.abs(residuals))
     rmse = np.sqrt(np.mean(residuals**2))
     r2 = model.score(X, y)
@@ -159,17 +159,19 @@ if __name__ == "__main__":
     output_dir = os.path.join(os.path.dirname(dl.__file__), "data", "model_fits")
     os.makedirs(output_dir, exist_ok=True)
     
-    print("Loading team_ypp_history from Turso cache...")
+    print("Loading team_ypp_history...")
     ypp_df = load_team_ypp_history()
-    print(f"Loaded {len(ypp_df)} team‑game rows")
+    print(f"Loaded {len(ypp_df)} team-week rows")
     
-    print("Loading nflverse games.csv...")
+    print("Loading games.csv...")
     games_df = load_nflverse_games()
-    print(f"Loaded {len(games_df)} games")
+    print(f"Games: {len(games_df)} rows")
     
-    print("Merging datasets...")
     merged = merge_ypp_games(ypp_df, games_df)
     print(f"Merged dataset: {len(merged)} games")
+    if merged.empty:
+        print("No overlapping games. Exiting.")
+        sys.exit(1)
     
     # Fit model
     result = fit_model(merged)
@@ -184,6 +186,14 @@ if __name__ == "__main__":
     # Cross-validation
     cv_results = cross_validate_time(merged, n_splits=5)
     print("\n--- Time-series CV ---")
+    for res in cv_results:
+        print(f"Fold {res['fold']}: train={res['train_size']}, test={res['test_size']}, MAE={res['mae']:.3f}, RMSE={res['rmse']:.3f}")
+    
+    # Plot
+    plot_path = os.path.join(output_dir, "ypp_vs_spread_cache.png")
+    plot_scatter(merged, result['alpha'], result['beta'], plot_path)
+    print(f"\nPlot saved to {plot_path}")
+    
     # Save coefficients to JSON for predictor integration
     coeffs = {
         'alpha': result['alpha'],
@@ -198,11 +208,3 @@ if __name__ == "__main__":
     with open(json_path, 'w') as f:
         json.dump(coeffs, f, indent=2)
     print(f"Coefficients saved to {json_path}")
-    
-    # Try to plot (optional)
-    plot_path = os.path.join(output_dir, "ypp_vs_spread_v2.png")
-    try:
-        plot_scatter(merged, result['alpha'], result['beta'], plot_path)
-        print(f"Plot saved to {plot_path}")
-    except Exception as e:
-        print(f"Plot failed (permission?): {e}")
