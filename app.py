@@ -1480,7 +1480,7 @@ if page == "📈 Track Record":
 
 # ---------------- sentiment lab page ----------------
 def sentiment_lab_page():
-    st.header("🧠 Sentiment Lab — Week 4")
+    st.header("🧠 Sentiment Lab — Week 4 (Forward‑Test)")
     st.caption("Sentiment analysis for all Week 4 matchups. Composite diff = home composite - away composite.")
     
     # Use direct SQLite connection to avoid db import hang
@@ -1488,14 +1488,10 @@ def sentiment_lab_page():
     import pandas as pd
     import data as dl
     
-    global season, week
-    # fallback if globals missing
-    if 'season' not in globals() or 'week' not in globals():
-        games_all = dl.load_games()
-        season, week = dl.current_season_week(games_all)
-        st.write(f"Globals missing, computed season={season}, week={week}")
-    else:
-        st.write(f"Debug: season={season}, week={week}")
+    # Sentiment Lab is fixed to Week 4, 2026 for forward-test
+    season = 2026
+    week = 4
+    st.write(f"Sentiment Lab — Week {week} (fixed for forward‑test)")
     
     # Load Week 4 games
     games = dl.load_games()
