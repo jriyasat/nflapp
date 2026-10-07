@@ -67,7 +67,9 @@ def main():
         fanout("injury", f"🏥 NFL Edge Injury Report — Week {week}", full)
     except Exception:
         pass
-    os._exit(0)
+    # no os._exit here: it kills the process WITHOUT flushing stdout — the alert
+    # text stays in the pipe buffer and the run reports "silent" (2026-10-06).
+    # run(main) handles the clean flushed exit.
 
 
 if __name__ == "__main__":
