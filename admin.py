@@ -14,6 +14,7 @@ import hashlib
 sys.path.insert(0, os.path.dirname(__file__))
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config/model_weights.json")
+USE_SENTIMENT = os.environ.get('USE_SENTIMENT', 'false').lower() == 'true'
 HISTORY_PATH = os.path.join(os.path.dirname(__file__), "config/tuning_history.csv")
 MAX_HISTORY_ROWS = 500
 
@@ -650,21 +651,26 @@ with tab1:
         st.subheader("🧠 Sentiment Layer")
         st.markdown("**Affects:** Enhanced model (sentiment‑weighted) + Sentiment‑only predictor")
         
-        sentiment_weight = st.slider(
-            "sentiment_weight",
-            0.0, 0.1, config.get("sentiment_weight", 0.0), step=0.01,
-            help="Weight of sentiment composite (confidence+morale‑controversy) into model spread."
-        )
-        sentiment_only_threshold = st.slider(
-            "sentiment_only_threshold",
-            0.0, 1.5, config.get("sentiment_only_threshold", 0.5), step=0.05,
-            help="Composite difference threshold for sentiment‑only binary picks."
-        )
-        sentiment_enabled = st.checkbox("Enable sentiment layer", value=config.get("sentiment_weight", 0.0) > 0, key="sentiment_enable_tab1")
-        if sentiment_enabled:
-            st.info("Sentiment layer active. Scores will be fetched and used.")
+        if USE_SENTIMENT:
+            sentiment_weight = st.slider(
+                "sentiment_weight",
+                0.0, 0.1, config.get("sentiment_weight", 0.0), step=0.01,
+                help="Weight of sentiment composite (confidence+morale‑controversy) into model spread."
+            )
+            sentiment_only_threshold = st.slider(
+                "sentiment_only_threshold",
+                0.0, 1.5, config.get("sentiment_only_threshold", 0.5), step=0.05,
+                help="Composite difference threshold for sentiment‑only binary picks."
+            )
+            sentiment_enabled = st.checkbox("Enable sentiment layer", value=config.get("sentiment_weight", 0.0) > 0, key="sentiment_enable_tab1")
+            if sentiment_enabled:
+                st.info("Sentiment layer active. Scores will be fetched and used.")
+            else:
+                st.warning("Sentiment layer disabled. No sentiment impact.")
         else:
-            st.warning("Sentiment layer disabled. No sentiment impact.")
+            st.warning("Sentiment layer disabled by environment flag (USE_SENTIMENT=false).")
+            sentiment_weight = 0.0
+            sentiment_only_threshold = config.get("sentiment_only_threshold", 0.5)
 
         # Sentiment Scores Display
         with st.expander("📊 Sentiment Scores (Week 4)", expanded=False):
@@ -1025,6 +1031,25 @@ with tab3:
                     st.error(f"❌ Retraining failed: {result.stderr[:1000]}")
         
         st.warning("⚠️ YPP coefficients need retraining before tuning meaningful.")
+        
+        # Test Configuration
+        st.subheader("🧪 Test Configuration")
+        test_name = st.text_input("Test name (required to apply)", placeholder="e.g., high-pass-volume-2")
+        apply_disabled = test_name.strip() == ""
+        
+        if st.button("✅ Apply Candidate Configuration", type="primary", disabled=apply_disabled):
+            # Build candidate config dict
+            candidate_config = {
+                "snap_share_weight": candidate_snap_share_weight,
+                "target_share_weight": candidate_target_share_weight,
+                "props_pass_volume_factor": candidate_pass_volume_factor,
+                "props_rush_volume_factor": candidate_rush_volume_factor,
+                "ypp_weight": candidate_ypp_weight,
+                "elo_weight": candidate_elo_weight,
+            }
+            # Append to history with test name
+            history_df = append_history(candidate_config, test_name=test_name)
+            st.success(f"✅ Configuration '{test_name}' saved to history")
         
         if st.button("🚀 Run Walk‑Forward Backtest (2021‑2025)", type="primary"):
             with st.spinner("Running walk‑forward backtest (2‑3 minutes)..."):
