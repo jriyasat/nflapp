@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pre‑commit hook to detect grading‑logic anti‑patterns.
+# Pre‑commit hook to detect grading‑logic anti‑patterns.
 Run manually with: python scripts/check_grading_patterns.py
 
 Checks for:
@@ -49,7 +49,7 @@ def check_market_get_spread(content, path):
 def check_clv_variable(content, path):
     """Warn about 'clv' variable that might be mislabeled."""
     # Look for assignment clv = ... mean()
-    pattern = r'\bclv\s*=\s*[^;]+mean\(\)'
+    pattern = r'\bclv\s*=\s*[^;]+\.mean\(\)'
     matches = re.finditer(pattern, content)
     errors = []
     for m in matches:
