@@ -15,8 +15,8 @@
    - Script: `scripts/compute_ypp_history.py` (2,718 team‑game rows).  
    - YPP model fallback: `_load_team_stats` now loads `team_ypp_history` if `sgo_team_stats` empty.
 
-3. **YPP Model Retrained** – Coefficients based on **1,274 games** (was 34 noisy samples).  
-   - `alpha=1.3620`, `beta=0.8178`, `R²=0.170`, `MAE=4.478`, `RMSE=5.540`.  
+3. **YPP Model Retrained** – Coefficients based on **1,408 games** (was 34 noisy samples).  
+   - `alpha=1.4666`, `beta=0.8042`, `R²=0.133`, `MAE=4.588`, `RMSE=5.697`.  
    - Updated `ypp_coefficients.json` in container.
 
 4. **YPP Spread Sign Fixed** – Changed `predict_spread` to return `‑(alpha + beta * ypp_diff)` (negative = home favored), aligning with market convention.

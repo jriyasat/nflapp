@@ -37,6 +37,9 @@ def load_weights():
         nonmarket_weight = 1.0 - market_weight
         ypp_weight = config.get('ypp_weight', 0.85)
         elo_weight = config.get('elo_weight', 0.15)
+        if not pr.USE_YPP:
+            ypp_weight = 0.0
+            elo_weight = 1.0
         # Normalize ypp/elo within non-market portion (as in predictor)
         total = ypp_weight + elo_weight
         if total > 0:

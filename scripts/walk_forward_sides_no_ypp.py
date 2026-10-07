@@ -47,6 +47,9 @@ def load_weights(config_overrides=None):
     nonmarket_weight = 1.0 - market_weight
     ypp_weight = config.get('ypp_weight', 0.85)
     elo_weight = config.get('elo_weight', 0.15)
+    if not pr.USE_YPP:
+        ypp_weight = 0.0
+        elo_weight = 1.0
     # Normalize ypp/elo within non-market portion (as in predictor)
     total = ypp_weight + elo_weight
     if total > 0:
@@ -77,6 +80,8 @@ def walk_forward(games, ypp_model, market_lines_fn):
     ratings, last_season = {}, None
     hist = []   # (p_prior, home spread) for Elo‑spread map fitting (pre‑2021 only)
     a = b = None
+    hist_ypp = []  # (strength_diff, spread_line) for YPP coefficient fitting
+    a_ypp = b_ypp = None
     for _, r in g.iterrows():
         if last_season is not None and r["season"] != last_season:
             ratings = {t: pr.START + (e - pr.START) * (1 - pr.REGRESS)
@@ -91,13 +96,28 @@ def walk_forward(games, ypp_model, market_lines_fn):
             h["logit"] = h["p"].clip(0.02, 0.98).apply(lambda p: math.log(p / (1 - p)))
             A = np.vstack([h["logit"], np.ones(len(h))]).T
             a, b = np.linalg.lstsq(A, h["spread"], rcond=None)[0]
+            if a_ypp is None and len(hist_ypp) > 0:
+                # fit YPP coefficients on pre-2021 data
+                hy = pd.DataFrame(hist_ypp, columns=["diff", "spread"])
+                A_ypp = np.vstack([hy["diff"], np.ones(len(hy))]).T
+                a_ypp, b_ypp = np.linalg.lstsq(A_ypp, hy["spread"], rcond=None)[0]
         if r["season"] >= 2021 and r["game_type"] == "REG":
             # Compute Elo spread
             p_c = min(max(p_home, 0.02), 0.98)
             elo_spread = a * math.log(p_c / (1 - p_c)) + b
-            # Compute YPP spread (point‑in‑time)
-            ypp_spread = ypp_model.predict_spread(r["away_team"], r["home_team"],
-                                                  date=r.get("gameday"))
+            # Compute YPP spread (point‑in‑time) using fitted coefficients if available
+            away_net, away_n = ypp_model.get_team_ypp_stats(r["away_team"], r.get("gameday"))
+            home_net, home_n = ypp_model.get_team_ypp_stats(r["home_team"], r.get("gameday"))
+            if away_n == 0 or home_n == 0:
+                ypp_diff = 0.0
+            else:
+                ypp_diff = home_net - away_net
+            if a_ypp is not None:
+                ypp_spread = -(a_ypp + b_ypp * ypp_diff)
+            else:
+                # fallback to static coefficients
+                ypp_spread = ypp_model.predict_spread(r["away_team"], r["home_team"],
+                                                      date=r.get("gameday"))
             # Get market line
             market_spread, market_src = market_lines_fn(r)
             if market_spread is None:
@@ -119,6 +139,12 @@ def walk_forward(games, ypp_model, market_lines_fn):
         ratings[r["away_team"]] = ra - shift
         if r["season"] < 2021 and pd.notna(r["spread_line"]):
             hist.append((p_home, -r["spread_line"]))
+            # also collect YPP differential for coefficient fitting
+            away_net, away_n = ypp_model.get_team_ypp_stats(r["away_team"], r.get("gameday"))
+            home_net, home_n = ypp_model.get_team_ypp_stats(r["home_team"], r.get("gameday"))
+            if away_n > 0 and home_n > 0:
+                strength_diff = home_net - away_net
+                hist_ypp.append((strength_diff, -r["spread_line"]))
 
 def evaluate_config(games, ypp_model, market_lines_fn, market_weight, nonmarket_weight,
                     ypp_weight, elo_weight, threshold=2.0):

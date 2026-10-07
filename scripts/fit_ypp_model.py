@@ -7,6 +7,7 @@ Outputs regression coefficients (alpha, beta) and validation metrics.
 
 import os
 import sys
+import argparse
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
@@ -168,21 +169,33 @@ def plot_scatter(merged_df, alpha, beta, output_path):
     plt.close()
 
 if __name__ == "__main__":
-    # Paths
-    sgo_csv = sys.argv[1] if len(sys.argv) > 1 else 'data/sgo_historical_2024-01-01.csv'
-    sgo_csv = os.path.join(os.path.dirname(dl.__file__), sgo_csv)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("sgo_csv", nargs="?", default="data/sgo_historical_2024-01-01.csv",
+                        help="Path to SGO historical CSV (default: data/sgo_historical_2024-01-01.csv)")
+    parser.add_argument("--cutoff-season", type=int, default=None,
+                        help="Only include games with season < cutoff_season (exclusive)")
+    args = parser.parse_args()
+
+    sgo_csv = os.path.join(os.path.dirname(dl.__file__), args.sgo_csv)
     output_dir = os.path.join(os.path.dirname(dl.__file__), "data", "model_fits")
     os.makedirs(output_dir, exist_ok=True)
-    
+
     print("Loading data...")
     sgo_df = load_sgo_stats(sgo_csv)
     games_df = load_nflverse_games()
     print(f"SGO stats: {len(sgo_df)} rows")
     print(f"Games: {len(games_df)} rows")
-    
+
     merged = merge_sgo_games(sgo_df, games_df)
+    if args.cutoff_season is not None:
+        merged = merged[merged["season"] < args.cutoff_season]
+        print(f"Filtered to seasons before {args.cutoff_season}: {len(merged)} games")
     print(f"Merged dataset: {len(merged)} games")
-    
+
+    if len(merged) == 0:
+        print("ERROR: No data after filtering. Exiting.")
+        sys.exit(1)
+
     # Fit model
     result = fit_model(merged)
     print("\n--- Regression results ---")
@@ -192,18 +205,18 @@ if __name__ == "__main__":
     print(f"RMSE: {result['rmse']:.3f}")
     print(f"R²: {result['r2']:.3f}")
     print(f"Sample size: {result['n_samples']}")
-    
+
     # Cross-validation
     cv_results = cross_validate_time(merged, n_splits=5)
     print("\n--- Time-series CV ---")
     for res in cv_results:
         print(f"Fold {res['fold']}: train={res['train_size']}, test={res['test_size']}, MAE={res['mae']:.3f}, RMSE={res['rmse']:.3f}")
-    
+
     # Plot
     plot_path = os.path.join(output_dir, "ypp_vs_spread.png")
     plot_scatter(merged, result['alpha'], result['beta'], plot_path)
     print(f"\nPlot saved to {plot_path}")
-    
+
     # Save coefficients to JSON for predictor integration
     coeffs = {
         'alpha': result['alpha'],
