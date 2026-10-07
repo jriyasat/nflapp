@@ -23,6 +23,7 @@ TOTAL_SD = 13.5           # SD of game total vs expectation
 MAX_ADJ = 2.5             # cap on total adjustment, points
 MAX_TOTAL_ADJ = 3.5
 USE_YPP = os.environ.get('USE_YPP', 'false').lower() == 'true'
+USE_SENTIMENT = os.environ.get('USE_SENTIMENT', 'false').lower() == 'true'
 
 # Load model weights config
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config/model_weights.json')
@@ -39,7 +40,7 @@ def _load_weights():
         if total > 0:
             ypp_weight /= total
             elo_weight /= total
-        sentiment_weight = config.get('sentiment_weight', 0.0)
+        sentiment_weight = config.get('sentiment_weight', 0.0) if USE_SENTIMENT else 0.0
         return market_weight, nonmarket_weight, ypp_weight, elo_weight, sentiment_weight
     except Exception:
         # fallback to hardcoded defaults
@@ -227,6 +228,15 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
         adjs.append({"module": "rest_fade", "team": rested, "pts": fade})
         total_adj += fade
 
+    # sentiment adjustment
+    if SENTIMENT_WEIGHT != 0:
+        season = game_row.get('season')
+        week = game_row.get('week')
+        if pd.notna(season) and pd.notna(week):
+            sent_adj = sentiment_adjustment(away, home, int(season), int(week))
+            if sent_adj:
+                adjs.append({"module": "sentiment", "team": "N/A", "pts": sent_adj})
+                total_adj += sent_adj
     total_adj = max(min(total_adj, MAX_ADJ), -MAX_ADJ)
 
     mode = "market-blend" if market.get("p_home") is not None else "elo-only"
@@ -247,8 +257,10 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
 
     # model spread -> cover prob for each side (margin ~ Normal(-spread, SD))
     model_margin = -model_spread  # positive = home wins by X
+    sentiment_influenced = any(adj.get('module') == 'sentiment' for adj in adjs)
     out = {
         "mode": mode, "adjustments": adjs,
+        "sentiment_influenced": sentiment_influenced,
         "p_elo": p_elo, "elo_spread": elo_spread, "ypp_spread": ypp_spread,
         "p_market": p_market, "n_books": market.get("n_books", 0), "market_src": market_src,
         "market_spread": market.get("home_spread"), "market_total": market.get("total"),
