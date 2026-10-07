@@ -25,7 +25,7 @@ _BETS_COLS = ["id", "user", "date", "season", "week", "game", "bet_type",
               "selection", "line", "odds", "stake", "book", "status", "profit", "clv"]
 _PICKS_COLS = ["id", "logged_at", "season", "week", "game", "pick_type", "side",
                "model_val", "market_val_log", "edge_log", "p_cover_log",
-               "closing_line", "grade", "profit", "flag", "config_hash"]
+               "closing_line", "grade", "profit", "flag", "experimental", "config_hash"]
 
 _TURSO_CLIENT = None
 _TURSO_SCHEMA_DONE = False
@@ -151,6 +151,9 @@ def _ensure_user_cols(conn):
     if "flag" not in pcols:
         # marks picks excluded from the record (data-quality, e.g. fallback-line logging)
         conn.execute("ALTER TABLE predictions ADD COLUMN flag TEXT")
+    if "experimental" not in pcols:
+        # paper trades (e.g. gust-unders): graded at close, never in the headline record
+        conn.execute("ALTER TABLE predictions ADD COLUMN experimental INTEGER DEFAULT 0")
     if "config_hash" not in pcols:
         # hash of model weights used when pick was logged; allows tuning attribution
         conn.execute("ALTER TABLE predictions ADD COLUMN config_hash TEXT")
@@ -396,8 +399,10 @@ def save_pickem(user, season, week, game, pick, line):
                 raise ValueError(f"picks locked 5 min before kickoff ({game})")
     except ValueError:
         raise
-    except Exception:
-        pass  # data lookup failed → allow; UI still guards
+    except Exception as e:
+        # fail CLOSED: can't verify kickoff -> refuse the write (was: allow — a
+        # data hiccup could bypass the lock entirely; audit 2026-09 finding)
+        raise ValueError(f"cannot verify kickoff time — pick refused while schedule data is unavailable ({type(e).__name__})")
     with _connect() as c:
         # INSERT OR REPLACE = re-picking overwrites side AND line (last change wins)
         c.execute("INSERT OR REPLACE INTO pickem (id, user, season, week, game, pick, line, created_at, grade)"
@@ -423,8 +428,9 @@ def delete_pickem(user, season, week, game):
                 raise ValueError(f"picks locked 5 min before kickoff ({game})")
     except ValueError:
         raise
-    except Exception:
-        pass  # data lookup failed → allow; UI still guards
+    except Exception as e:
+        # fail CLOSED: can't verify kickoff -> refuse the delete (same rule as save)
+        raise ValueError(f"cannot verify kickoff time — pick removal refused while schedule data is unavailable ({type(e).__name__})")
     with _connect() as c:
         c.execute("DELETE FROM pickem WHERE user=? AND season=? AND week=? AND game=?",
                   (user, season, week, game))
@@ -738,12 +744,12 @@ def insert_pick(row):
     with _connect() as c:
         c.execute("""INSERT OR IGNORE INTO predictions
             (id, logged_at, season, week, game, pick_type, side, model_val,
-             market_val_log, edge_log, p_cover_log, closing_line, grade, profit, flag, config_hash)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             market_val_log, edge_log, p_cover_log, closing_line, grade, profit, flag, experimental, config_hash)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (uuid.uuid4().hex[:8], row["logged_at"], row["season"], row["week"],
              row["game"], row["pick_type"], row["side"], row["model_val"],
              row["market_val_log"], row["edge_log"], row["p_cover_log"],
-             None, "pending", None, row.get("flag"), row.get("config_hash")))
+             None, "pending", None, row.get("flag"), int(row.get("experimental") or 0), row.get("config_hash")))
 
 
 def grade_pick(pick_id, closing_line, grade, profit):

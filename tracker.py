@@ -91,6 +91,51 @@ def log_predictions(games, elo, season, week, books_by_abbr=None, espn_odds=None
     return new
 
 
+GUST_PAPER_MIN = 20.0  # paper-trade trigger: forecast gusts (mph) at kickoff
+
+
+def log_gust_papers(games, season, week, books_by_abbr=None, quiet=True):
+    """PAPER TRADE (experimental=1): log a totals UNDER lean for every outdoor
+    game with forecast gusts >= GUST_PAPER_MIN at kickoff and a REAL books
+    consensus total (same books-only honesty rule as official picks).
+    Backtest basis (2021-25, n=897 outdoor): gust 20-29 mph unders went 60-70%
+    vs closing totals. Graded at close like any pick, but excluded from the
+    headline record — this is the live trial before any model change."""
+    import weather
+    existing = db.existing_pick_keys()
+    wk = games[(games["season"] == season) & (games["game_type"] == "REG")
+               & (games["week"] == week)]
+    books_by_abbr = books_by_abbr or {}
+    now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
+    new = 0
+    for _, g in wk.iterrows():
+        if str(g.get("roof", "")).lower() not in ("outdoors", "open"):
+            continue
+        label = f"{g['away_team']} @ {g['home_team']}"
+        if (label, "total") in existing:
+            continue  # the model already has an official totals pick on this game
+        books = books_by_abbr.get((g["away_team"], g["home_team"])) or {}
+        totals = [b["total"] for b in books.values() if b.get("total") is not None]
+        if not totals:
+            continue
+        try:
+            gust = weather.kickoff_gust(g.get("stadium"), g.get("gameday"), g.get("gametime"))
+        except Exception:
+            gust = None
+        if gust is None or gust < GUST_PAPER_MIN:
+            continue
+        db.insert_pick({"logged_at": now, "season": season, "week": week, "game": label,
+                        "pick_type": "total", "side": "under",
+                        "model_val": round(float(gust), 1),
+                        "market_val_log": float(pd.Series(totals).median()),
+                        "edge_log": None, "p_cover_log": None, "experimental": 1})
+        existing.add((label, "total"))
+        new += 1
+    if not quiet:
+        print(f"logged {new} gust paper trades for {season} W{week}")
+    return new
+
+
 def grade_predictions(games):
     """Grade pending picks whose games have results. Returns updated df."""
     picks = db.load_picks()
@@ -125,8 +170,19 @@ def grade_predictions(games):
     return db.load_picks()
 
 
+def _clean(picks):
+    """Picks that count toward the record: excludes flagged (data-quality) rows
+    and experimental paper trades (graded separately, never headline)."""
+    out = picks[picks["flag"].isna()] if "flag" in picks.columns else picks
+    if "experimental" in out.columns:
+        out = out[out["experimental"].fillna(0) != 1]
+    return out
+
+
 def summary(picks):
     out = {}
+    flagged = int(picks["flag"].notna().sum()) if "flag" in picks.columns else 0
+    picks = _clean(picks)
     for ptype in ("spread", "total"):
         sub = picks[(picks["pick_type"] == ptype) & picks["grade"].isin(["won", "lost", "push"])]
         decided = sub[sub["grade"] != "push"]
@@ -137,10 +193,12 @@ def summary(picks):
             "n": len(sub),
         }
     out["pending"] = int((picks["grade"] == "pending").sum())
+    out["flagged"] = flagged
     return out
 
 
 def edge_buckets(picks):
+    picks = _clean(picks)
     graded = picks[picks["grade"].isin(["won", "lost"])]
     if graded.empty:
         return []
@@ -157,6 +215,7 @@ def edge_buckets(picks):
 
 
 def calibration(picks):
+    picks = _clean(picks)
     graded = picks[picks["grade"].isin(["won", "lost"])].copy()
     if graded.empty:
         return []

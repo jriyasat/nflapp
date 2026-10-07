@@ -19,6 +19,87 @@ production threshold) and shows no reliable edge when it does. Model margin MAE 
 market MAE (9.77 vs 9.75). The blend is a no-bet machine by design — spread picks
 in practice come from the injury module.
 
+## Six candidate adjustments — ALL DEAD (2026-09-24, n=1,359 REG games 2021–2025, closing lines)
+
+| Angle | Best split | Result | Verdict |
+|---|---|---|---|
+| Division games (dogs cover) | Away div dogs 54.3% (n=282, z=1.43) | Combined 52.1%, −0.6% ROI | ❌ dead |
+| Temperature (totals) | 33–45°F: 54.7% under (n=148, z=1.15) | ≤32°F and >75°F: nothing | ❌ dead |
+| Short week / TNF | 51.0% under (n=96, z=0.20) | Home covers 49.5% | ❌ dead |
+| Bye-week fade | Away bye 54.8% (n=73, z=0.82) | Home bye exactly 50.0% | ❌ dead |
+| Body clock (Pacific team, 1pm ET, East) | Fade Pacific visitor: 41.5% (n=65) | Folk angle BACKWARDS (Pacific visitors cover 58.5%) | ❌ dead |
+| Pace differential (fast-fast → over) | See autopsy below | Pooled 55.8% UNDER (n=342, z=2.16) — a 2021-22 fossil | ❌ dead |
+
+Control: wind ≥15 → under 60.9% (z=+2.04) replicated inside the same script — the
+negatives are real, not a broken pipeline.
+
+### Pace-angle autopsy — what a dying edge looks like
+
+Fast/slow = median split on rolling-4-game plays/gm (prior games only, no lookahead).
+Folk theory: two fast teams → more plays → more points → over. Reality: fast and slow
+teams average identical efficiency (5.34 ypp each), the NFL pace spread is ~1.4
+plays/gm at the median, and the 60-minute clock keeps possessions ~constant.
+
+The pooled "edge" was the market overpricing tempo in 2021-22 — then fixing it:
+
+| Season | FF market line | FF actual | Market error | Under rate | ROI |
+|---|---|---|---|---|---|
+| 2021 | 46.8 | 45.6 | −1.1 too high | 57.9% | +10.5% |
+| 2022 | 44.6 | 43.1 | −1.4 too high | 59.7% | +14.0% |
+| 2023 | 43.4 | 44.2 | +0.9 too low | 54.5% | +4.1% |
+| 2024 | 44.5 | 45.8 | +1.3 too low | 53.2% | +1.6% |
+| 2025 | 45.7 | 46.6 | +0.9 too low | 53.1% | +1.3% |
+
+Same direction all five years, magnitude decaying to zero: the market dropped
+fast-fast lines ~3 pts in 2023 and has slightly UNDER-priced them since. Lesson:
+edges rooted in market mistakes have a shelf life; edges rooted in physics
+(wind) and information timing (injuries) persist. Decision (Jeff, 2026-09-24):
+ship nothing; record and close.
+
+## Injury-to-totals candidates — ALL DEAD (2026-09-24, 2,718 team-games 2021–2025)
+
+Method: starter = top-usage player per team-season (QB by attempts, RB by carries,
+WR by targets); out = Out/Doubtful on that week's official report; totals graded vs
+closing line.
+
+| Candidate | n | Under rate | Avg vs total | ROI | Verdict |
+|---|---|---|---|---|---|
+| QB1 Out | 91 | 47.3% | +2.12 | −9.8% | ❌ dead — **market now OVERCORRECTS** |
+| QB1 Doubtful | 26 | 57.7% | +0.33 | +10.1% | ❌ noise (n=26) |
+| WR1 Out | 60 | 41.7% | +4.27 | −20.5% | ❌ dead — backwards (overs hit) |
+| RB1 Out | 81 | 59.3% | −0.71 | +13.1% | ❌ fossil (see below) |
+
+**QB-out totals warning (do not resurrect):** season-by-season ROI on QB-out unders:
++6.1% (2021) → +13.5% (2022) → 0% (2023) → **−28.4% (2024) → −31.3% (2025)**.
+The market learned to slash totals on QB news and now slashes too far — backup QBs
+outperform the panic. Betting QB-out unders is a ~−30% ROI loser in the current era.
+
+**RB1 Out fossil:** 73.9% under in 2021 (z=+2.29, +41% ROI) → 63.6% (2022) →
+50.0/50.0/52.6% (2023–25). Same decay signature as the pace angle: real once,
+eaten by 2023.
+
+**Meta-lesson (3x confirmed this week):** market-visible timing angles die in ~2
+seasons. Durable edges share different DNA — physics (wind), information speed
+(Sleeper-layer injury news before books move), and discipline (≥2.0 vs real lines
+only). Injury value on the SPREAD side likewise lives in timing, not close (see
+injury-module section below).
+
+## Dome / indoor-stadium angles (2026-09-21, n=1,359 REG games 2021–2025, closing lines)
+
+| Angle | n | Result | z | Verdict |
+|---|---|---|---|---|
+| Indoor games → over (no wind) | 428 | 50.7% over (+1.48 avg vs line) | +0.29 | ❌ dead — market prices venue |
+| Dome team away outdoors ATS ("dome tax") | 263 | 54.8% cover | +1.54 | ❌ dead — direction is BACKWARDS (market overprices the tax if anything) and not significant (p≈0.12, multiple angles tested) |
+| Dome team away outdoors, Nov+ | 127 | 55.9% cover | +1.33 | ❌ same |
+| Outdoor team away indoors → over | 289 | 52.2% over | +0.76 | ❌ dead |
+
+Side observation: outdoor games go under 52.5% (z=−1.52) with totals perfectly calibrated
+(+0.02 avg vs line) — the wind module already captures the actionable subset; a blanket
+outdoor-under tweak would double-count it.
+
+**Conclusion:** no indoor-stadium weight. Venue is fully priced; the folk "dome tax"
+points the wrong way in the data. Dead, marked with numbers.
+
 ## Injury module (`scripts/backtest_injury.py`)
 
 Absences proxied from weekly player stats (primary QB = cumulative attempts leader,
@@ -80,3 +161,45 @@ Caught via user question about a missing pick; fixed in `10388e5` (subtract
 case. No spread pick was ever logged with the bug (all prior picks were totals).
 Lesson: cold-cache cloud fetches hit code paths warm local caches don't; cloud
 pushes touching imported modules need a Reboot.
+
+## Travel distance / fatigue (Oct 5, 2026) — DEAD
+
+Tested whether travel affects ATS/totals, 2021–2025 REG (n=1,333, real closing
+lines, neutral-site excluded). Away-trip distance (haversine home→venue):
+buckets 0–500/500–1k/1k–1.5k/1.5k–2k/2k+ mi → away cover 51.1/47.8/49.6/49.3/49.2%
+(all |z|<0.9, no gradient). Isolated to non-division games (kills the division
+confound): 47.6/49.7/49.3% — flat. Long-trip (>1.5k mi, non-division) by season:
++6.3/−6.3/+6.6/+0.1/−4.0 pts vs baseline — noise oscillation, the dead-angle
+signature. Back-to-back road games: 49.2% vs 49.5% — nothing. Long-trip totals:
+over% flips sign year to year. **The market prices travel completely; do not
+resurrect.** The ✈️ Travel tab remains a display/teaching feature only — no
+model adjustment.
+
+> ⚠️ **Convention correction (same session):** nflverse `spread_line` is the
+> AWAY team's line (positive = away underdog), verified by corr(result,
+> spread_line)=+0.46 and big-spread samples (HOU +20.5 @ ARI etc.). Earlier
+> ATS-side backtests in this file used the mirrored convention — e.g., the dome
+> "dome team away outdoors 54.8% cover" is actually 45.2% the other side
+> (|z|=1.54 either way: dead stands; fading it is not significant either).
+> Totals-based tests (over/under) are unaffected. Grading in tracker.py uses
+> its own pick-side convention and was independently verified — unaffected.
+
+## Weather deep-dive: gusts + precipitation (Oct 5, 2026) — ALIVE (paper-trading)
+
+897 outdoor games 2021–25, actual kickoff-hour weather (Open-Meteo archive) vs
+closing totals. Sustained wind: 10–14 mph unders 61.1% (z=+3.77 — production
+−1.2 rule VALIDATED); 15–40 mph unders 55.4% (z=+1.34 — production −2.7 rule
+was calibrated on a 60.9%/n=87 claim; the 5-season rate is softer).
+**Gusts are the sharper instrument:** 20–25 mph unders 60.0% (z=+2.99, n=145);
+25–30 mph unders 70.6% (z=+4.24, n=85); 30+ mph unders 58.3% (z=+1.66 — market
+prices headline weather). Season persistence (gust 25+): 68/69/80% under
+2021–23, **flip 2024 (33%, n=21)**, 68% 2025 — 4 of 5 seasons. Rain ≥1mm:
+unders 64.5% (z=+1.89, n=31 — promising, small).
+
+**Decision (Jeff, Oct 5): PAPER TRADE.** `tracker.log_gust_papers` logs a
+totals UNDER (experimental=1) for every outdoor game with forecast gusts ≥20
+mph and a real books total — graded at close, excluded from the headline
+record, shown on Track Record under 🧪 Paper trades. Adopt as a model
+adjustment only if the live trial confirms. Caveats: backtest used ACTUAL
+gusts, production bets FORECAST gusts (error shrinks edge); 2024 flip warns
+of losing years; 30+ weakening says books partially catch up.
