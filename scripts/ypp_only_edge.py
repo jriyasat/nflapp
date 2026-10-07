@@ -14,8 +14,9 @@ for _, r in g.iterrows():
         market_spread = -float(r["spread_line"])
         ypp_spread = model.predict_spread(r["away_team"], r["home_team"], r.get("gameday"))
         # YPP edge assuming YPP spread same perspective as market
+        market_margin = -market_spread
         edge = (-ypp_spread) - (-market_spread)  # + means model likes home more
-        home_cov = r["result"] - market_spread
+        home_cov = r["result"] - market_margin
         pick_home = edge > 0
         pick_won = (pick_home and home_cov > 0) or (not pick_home and home_cov < 0)
         rows.append({

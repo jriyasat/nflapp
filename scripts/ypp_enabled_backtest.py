@@ -55,7 +55,7 @@ for _, r in g.iterrows():
         model_margin = -model_spread
         market_margin = -market_spread
         edge = model_margin - market_margin
-        home_cov = r["result"] - market_spread
+        home_cov = r["result"] - market_margin
         rows.append({
             "season": r["season"], "week": r["week"], "away": r["away_team"], "home": r["home_team"],
             "edge": edge, "home_cov": home_cov, "market_spread": market_spread,
@@ -84,8 +84,8 @@ else:
     win_pct = win.sum() / len(dec) * 100
     profit = win.sum() * (100 / 110) - (len(dec) - win.sum())
     roi = profit / len(dec) * 100
-    clv = sub["edge"].mean()
-    print(f"YPP‑enabled threshold {thresh}: n={len(dec)}, win%={win_pct:.1f}, ROI={roi:.1f}%, avg CLV={clv:.2f} pts")
+    avg_edge = sub["edge"].mean()
+    print(f"YPP‑enabled threshold {thresh}: n={len(dec)}, win%={win_pct:.1f}, ROI={roi:.1f}%, avg Avg edge={avg_edge:.2f} pts")
     for _, r in dec.iterrows():
         print(f"  {r['season']} W{r['week']} {r['away']}@{r['home']}: edge={r['edge']:.2f}, ypp={r['ypp_spread']:.2f}, elo={r['elo_spread']:.2f}, home_cov={r['home_cov']:.1f}")
     # also compute edge distribution

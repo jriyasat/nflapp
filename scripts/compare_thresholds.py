@@ -99,4 +99,4 @@ if __name__ == "__main__":
     import numpy as np
     for thresh in [1.5, 2.0]:
         n, win_pct, roi, clv = run_backtest(thresh)
-        print(f"Threshold {thresh}: n={n}, win%={win_pct:.1f}, ROI={roi:.1f}%, avg CLV={clv:.2f} pts")
+        print(f"Threshold {thresh}: n={n}, win%={win_pct:.1f}, ROI={roi:.1f}%, avg Avg edge={avg_edge:.2f} pts")

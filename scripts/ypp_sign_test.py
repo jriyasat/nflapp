@@ -16,7 +16,7 @@ for _, r in g.iterrows():
         # compute edge assuming YPP spread is home perspective, same as market_spread
         # model_margin = -ypp_spread, market_margin = -market_spread
         edge = (-ypp_spread) - (-market_spread)  # + means model likes home more
-        home_cov = r["result"] - market_spread
+        home_cov = r["result"] - market_margin
         pick_home = edge > 0
         pick_won = (pick_home and home_cov > 0) or (not pick_home and home_cov < 0)
         print(f"{r['season']} W{r['week']} {away}@{home}:")

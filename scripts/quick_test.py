@@ -58,8 +58,9 @@ def quick_test(limit_games=50, threshold=2.0):
                 adj = -0.5 if hr > ar else 0.5
             adj = max(min(adj, pr.MAX_ADJ), -pr.MAX_ADJ)
             model_spread = market_weight * market_spread + nonmarket_weight * nonmarket_spread - adj
+            market_margin = -market_spread
             edge = (-model_spread) - (-market_spread)
-            home_cov = r["result"] - market_spread
+            home_cov = r["result"] - market_margin
             pick_home = edge > 0
             pick_won = (pick_home and home_cov > 0) or (not pick_home and home_cov < 0)
             rows.append({

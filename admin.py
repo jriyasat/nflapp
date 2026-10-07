@@ -941,7 +941,7 @@ with tab3:
                                     key = (away_long, home_long)
                                     if key in books:
                                         market = pr.consensus(books[key])
-                                        return market.get('spread'), 'books'
+                                        return market.get('home_spread'), 'books'
                             if pd.notna(game_row.get('spread_line')):
                                 return -float(game_row['spread_line']), 'nflverse'
                             return None, 'none'

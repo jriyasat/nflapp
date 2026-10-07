@@ -47,7 +47,7 @@ def backtest_weight(market_weight):
             model_margin = -model_spread
             market_margin = -market_spread
             edge = model_margin - market_margin
-            home_cov = r["result"] - market_spread
+            home_cov = r["result"] - market_margin
             rows.append({
                 "edge": edge,
                 "home_cov": home_cov,
@@ -66,25 +66,25 @@ def backtest_weight(market_weight):
             hist.append((p_home, -r["spread_line"]))
     df = pd.DataFrame(rows)
     if df.empty:
-        return {"picks": 0, "win_pct": 0.0, "roi": 0.0, "clv": 0.0, "n_games": 0,
+        return {"picks": 0, "win_pct": 0.0, "roi": 0.0, "avg_edge": 0.0, "n_games": 0,
                 "edge_min": 0, "edge_max": 0, "edge_mean": 0, "edge_std": 0}
     thresh = 2.0
     sub = df[df["edge"].abs() >= thresh]
     dec = sub[sub["home_cov"] != 0]
     if len(dec) == 0:
-        return {"picks": 0, "win_pct": 0.0, "roi": 0.0, "clv": 0.0, "n_games": len(df),
+        return {"picks": 0, "win_pct": 0.0, "roi": 0.0, "avg_edge": 0.0, "n_games": len(df),
                 "edge_min": df["edge"].min(), "edge_max": df["edge"].max(),
                 "edge_mean": df["edge"].mean(), "edge_std": df["edge"].std()}
     wins = ((dec["edge"] > 0) & (dec["home_cov"] > 0)) | ((dec["edge"] < 0) & (dec["home_cov"] < 0))
     win_pct = wins.sum() / len(dec) * 100
     profit = wins.sum() * (100 / 110) - (len(dec) - wins.sum())
     roi = profit / len(dec) * 100
-    clv = sub["edge"].mean()
+    avg_edge = sub["edge"].mean()
     return {
         "picks": len(dec),
         "win_pct": win_pct,
         "roi": roi,
-        "clv": clv,
+        "avg_edge": avg_edge,
         "n_games": len(df),
         "edge_min": df["edge"].min(),
         "edge_max": df["edge"].max(),
@@ -105,7 +105,7 @@ if __name__ == "__main__":
         if res['picks'] > 0:
             print(f"  Win%: {res['win_pct']:.1f}%")
             print(f"  ROI: {res['roi']:.1f}%")
-            print(f"  Avg CLV: {res['clv']:.2f} pts")
+            print(f"  Avg Avg edge: {res['avg_edge']:.2f} pts")
         else:
             print("  No picks")
     print("\n" + "=" * 70)

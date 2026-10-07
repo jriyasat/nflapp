@@ -21,8 +21,9 @@ for _, r in g.iterrows():
     if pd.notna(r["spread_line"]):
         market_spread = -float(r["spread_line"])
         ypp_spread = model.predict_spread(r["away_team"], r["home_team"], r.get("gameday"))
+        market_margin = -market_spread
         edge = (-ypp_spread) - (-market_spread)
-        home_cov = r["result"] - market_spread
+        home_cov = r["result"] - market_margin
         pick_home = edge > 0
         pick_won = (pick_home and home_cov > 0) or (not pick_home and home_cov < 0)
         away_net, away_n = model.get_team_ypp_stats(r["away_team"], r.get("gameday"))
@@ -52,9 +53,9 @@ else:
     win_pct = wins / len(dec) * 100
     profit = wins * (100 / 110) - (len(dec) - wins)
     roi = profit / len(dec) * 100
-    clv = sub["edge"].mean()
+    avg_edge = sub["edge"].mean()
     print(f"\nYPP‑only picks (|edge| >= {threshold}): n={len(dec)}")
-    print(f"  win% = {win_pct:.1f}%, ROI = {roi:.1f}%, avg CLV = {clv:.2f} pts")
+    print(f"  win% = {win_pct:.1f}%, ROI = {roi:.1f}%, avg Avg edge = {avg_edge:.2f} pts")
     for _, r in dec.iterrows():
         print(f"    edge={r['edge']:.2f}, ypp_diff={r['ypp_diff']:.3f}, home_cov={r['home_cov']:.1f}")
 print(f"\nEdge distribution:")

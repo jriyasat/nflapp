@@ -62,7 +62,7 @@ def run_config(market_weight, ypp_weight=0.0, elo_weight=1.0, limit_games=None):
             model_margin = -model_spread
             market_margin = -market_spread
             edge = model_margin - market_margin
-            home_cov = r["result"] - market_spread
+            home_cov = r["result"] - market_margin
             rows.append({
                 "season": r["season"], "week": r["week"],
                 "away": r["away_team"], "home": r["home_team"],
@@ -82,22 +82,22 @@ def run_config(market_weight, ypp_weight=0.0, elo_weight=1.0, limit_games=None):
             hist.append((p_home, -r["spread_line"]))
     df = pd.DataFrame(rows)
     if df.empty:
-        return {"picks": 0, "win_pct": 0.0, "roi": 0.0, "clv": 0.0, "n_games": 0}
+        return {"picks": 0, "win_pct": 0.0, "roi": 0.0, "avg_edge": 0.0, "n_games": 0}
     thresh = 2.0
     sub = df[df["edge"].abs() >= thresh]
     dec = sub[sub["home_cov"] != 0]
     if len(dec) == 0:
-        return {"picks": 0, "win_pct": 0.0, "roi": 0.0, "clv": 0.0, "n_games": len(df)}
+        return {"picks": 0, "win_pct": 0.0, "roi": 0.0, "avg_edge": 0.0, "n_games": len(df)}
     wins = ((dec["edge"] > 0) & (dec["home_cov"] > 0)) | ((dec["edge"] < 0) & (dec["home_cov"] < 0))
     win_pct = wins.sum() / len(dec) * 100
     profit = wins.sum() * (100 / 110) - (len(dec) - wins.sum())
     roi = profit / len(dec) * 100
-    clv = sub["edge"].mean()
+    avg_edge = sub["edge"].mean()
     return {
         "picks": len(dec),
         "win_pct": win_pct,
         "roi": roi,
-        "clv": clv,
+        "avg_edge": avg_edge,
         "n_games": len(df),
     }
 
@@ -112,7 +112,7 @@ if __name__ == "__main__":
         if res['picks'] > 0:
             print(f"  Win%: {res['win_pct']:.1f}%")
             print(f"  ROI: {res['roi']:.1f}%")
-            print(f"  Avg CLV: {res['clv']:.2f} pts")
+            print(f"  Avg Avg edge: {res['avg_edge']:.2f} pts")
         else:
             print("  No picks")
     # also run full 85% weight for reference
@@ -124,4 +124,4 @@ if __name__ == "__main__":
     if res_full['picks'] > 0:
         print(f"  Win%: {res_full['win_pct']:.1f}%")
         print(f"  ROI: {res_full['roi']:.1f}%")
-        print(f"  Avg CLV: {res_full['clv']:.2f} pts")
+        print(f"  Avg Avg edge: {res_full['avg_edge']:.2f} pts")

@@ -57,8 +57,9 @@ for _, r in g.iterrows():
             adj = -0.5 if hr > ar else 0.5
         adj = max(min(adj, pr.MAX_ADJ), -pr.MAX_ADJ)
         model_spread = market_weight * market_spread + nonmarket_weight * nonmarket_spread - adj
+        market_margin = -market_spread
         edge = (-model_spread) - (-market_spread)
-        home_cov = r["result"] - market_spread
+        home_cov = r["result"] - market_margin
         pick_home = edge > 0
         pick_won = (pick_home and home_cov > 0) or (not pick_home and home_cov < 0)
         rows.append({
@@ -82,11 +83,11 @@ for thresh in [1.5, 2.0]:
     sub = df[df["edge"].abs() >= thresh]
     dec = sub[sub["home_cov"] != 0]
     if len(dec) == 0:
-        print(f"Threshold {thresh}: n=0, win%=N/A, ROI=N/A, CLV=N/A")
+        print(f"Threshold {thresh}: n=0, win%=N/A, ROI=N/A, Avg edge=N/A")
         continue
     wins = dec["pick_won"].sum()
     win_pct = wins / len(dec) * 100
     profit = wins * (100 / 110) - (len(dec) - wins)
     roi = profit / len(dec) * 100
-    clv = sub["edge"].mean()
-    print(f"Threshold {thresh}: n={len(dec)}, win%={win_pct:.1f}, ROI={roi:.1f}%, avg CLV={clv:.2f} pts")
+    avg_edge = sub["edge"].mean()
+    print(f"Threshold {thresh}: n={len(dec)}, win%={win_pct:.1f}, ROI={roi:.1f}%, avg Avg edge={avg_edge:.2f} pts")

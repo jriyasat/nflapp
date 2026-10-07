@@ -12,7 +12,7 @@ Honesty rules:
 - Graded vs closing line, pushes excluded, ROI at -110.
 - Threshold 2.0 for picks (production threshold).
 
-Output: win%, ROI, CLV, n per config (candidate vs current).
+Output: win%, ROI, avg_edge, n per config (candidate vs current).
 """
 
 import os
@@ -124,7 +124,7 @@ def evaluate_config(games, ypp_model, market_lines_fn, market_weight, nonmarket_
                     ypp_weight, elo_weight, threshold=2.0):
     """
     Run walk‑forward backtest with given weights.
-    Returns dict with win%, ROI, CLV, n (picks at threshold).
+    Returns dict with win%, ROI, avg_edge, n (picks at threshold).
     """
     rows = []
     for r, elo_spread, ypp_spread, market_spread, market_src in walk_forward(games, ypp_model, market_lines_fn):
@@ -145,7 +145,7 @@ def evaluate_config(games, ypp_model, market_lines_fn, market_weight, nonmarket_
         market_margin = -market_spread
         edge = model_margin - market_margin   # + = model likes home more
         # Did home cover closing spread?
-        home_cov = r["result"] - market_spread
+        home_cov = r["result"] - market_margin
         # Cover probability (assuming normal margin error)
         p_cover_home = 0.5 * (1 + math.erf((edge / MARGIN_SD) / math.sqrt(2)))
         rows.append({
@@ -173,14 +173,14 @@ def evaluate_config(games, ypp_model, market_lines_fn, market_weight, nonmarket_
     wins = dec["pick_won"].sum()
     profit = wins * (100 / 110) - (len(dec) - wins)  # -110 odds
     roi = profit / len(dec) * 100
-    # Closing line value (avg edge on picks)
-    clv = sub["edge"].mean()
+    # Average edge on picks (not closing‑line value)
+    avg_edge = sub["edge"].mean()
     return {
         "n_games": len(df),
         "n_picks": len(dec),
         "win_pct": dec["pick_won"].mean() * 100,
         "roi": roi,
-        "clv": clv,
+        "clv": avg_edge,
         "full_df": df,   # for debugging
     }
 
@@ -252,7 +252,7 @@ def main():
     if result['n_picks']:
         print(f"Win %: {result['win_pct']:.1f}%")
         print(f"ROI (%): {result['roi']:.1f}%")
-        print(f"Avg CLV (edge): {result['clv']:.2f} pts")
+        print(f"Avg edge: {result['clv']:.2f} pts")
     
     if args.out:
         with open(args.out, "w") as f:

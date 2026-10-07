@@ -53,7 +53,7 @@ for r, p_elo, elo_spread in walk_forward(games):
     model_spread = 0.85 * market_spread + 0.15 * elo_spread - adj
     model_margin = -model_spread
     edge = model_margin - market_margin   # + = model likes home more
-    home_cov = r["result"] - market_spread
+    home_cov = r["result"] - market_margin
     rows.append({
         "season": r["season"], "week": r["week"],
         "edge": edge, "home_cov": home_cov,
@@ -73,8 +73,8 @@ else:
     win_pct = win.sum() / len(dec) * 100
     profit = win.sum() * (100 / 110) - (len(dec) - win.sum())
     roi = profit / len(dec) * 100
-    clv = sub["edge"].mean()
-    print(f"Threshold {thresh}: n={len(dec)}, win%={win_pct:.1f}, ROI={roi:.1f}%, avg CLV={clv:.2f} pts")
+    avg_edge = sub["edge"].mean()
+    print(f"Threshold {thresh}: n={len(dec)}, win%={win_pct:.1f}, ROI={roi:.1f}%, avg Avg edge={avg_edge:.2f} pts")
     # show per-season breakdown
     for season in sorted(dec["season"].unique()):
         s = dec[dec["season"]==season]

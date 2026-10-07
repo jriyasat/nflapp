@@ -136,7 +136,7 @@ def evaluate_config(games, ypp_model, market_lines_fn, market_weight, nonmarket_
         market_margin = -market_spread
         edge = model_margin - market_margin   # + = model likes home more
         # Did home cover closing spread?
-        home_cov = r["result"] - market_spread
+        home_cov = r["result"] - market_margin
         # Cover probability (assuming normal margin error)
         p_cover_home = 0.5 * (1 + math.erf((edge / MARGIN_SD) / math.sqrt(2)))
         rows.append({
@@ -153,25 +153,25 @@ def evaluate_config(games, ypp_model, market_lines_fn, market_weight, nonmarket_
         })
     df = pd.DataFrame(rows)
     if df.empty:
-        return {"n_games": 0, "n_picks": 0, "win_pct": 0.0, "roi": 0.0, "clv": 0.0}
+        return {"n_games": 0, "n_picks": 0, "win_pct": 0.0, "roi": 0.0, "avg_edge": 0.0}
     df["pick_won"] = np.where(df["pick_home"], df["home_cov"] > 0, df["home_cov"] < 0)
     df["push"] = df["home_cov"] == 0
     # Subset where |edge| >= threshold
     sub = df[df["edge"].abs() >= threshold]
     dec = sub[~sub["push"]]
     if len(dec) == 0:
-        return {"n_games": len(df), "n_picks": 0, "win_pct": 0.0, "roi": 0.0, "clv": 0.0}
+        return {"n_games": len(df), "n_picks": 0, "win_pct": 0.0, "roi": 0.0, "avg_edge": 0.0}
     wins = dec["pick_won"].sum()
     profit = wins * (100 / 110) - (len(dec) - wins)  # -110 odds
     roi = profit / len(dec) * 100
     # Closing line value (avg edge on picks)
-    clv = sub["edge"].mean()
+    avg_edge = sub["edge"].mean()
     return {
         "n_games": len(df),
         "n_picks": len(dec),
         "win_pct": dec["pick_won"].mean() * 100,
         "roi": roi,
-        "clv": clv,
+        "avg_edge": avg_edge,
         "full_df": df,   # for debugging
     }
 
@@ -214,7 +214,7 @@ def main():
     if result['n_picks']:
         print(f"Win %: {result['win_pct']:.1f}%")
         print(f"ROI (%): {result['roi']:.1f}%")
-        print(f"Avg CLV (edge): {result['clv']:.2f} pts")
+        print(f"Avg Avg edge (edge): {result['avg_edge']:.2f} pts")
     
     if args.out:
         with open(args.out, "w") as f:

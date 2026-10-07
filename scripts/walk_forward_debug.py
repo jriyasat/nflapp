@@ -85,7 +85,7 @@ def debug_walk(games, ypp_model, market_lines_fn, limit=10):
             adj = max(min(adj, MAX_ADJ), -MAX_ADJ)
             model_spread = MARKET_WEIGHT * market_spread + NONMARKET_WEIGHT * nonmarket_spread - adj
             edge = (-model_spread) - (-market_spread)  # model_margin - market_margin
-            home_cov = r["result"] - market_spread
+            home_cov = r["result"] - market_margin
             print(f"Game {r['season']} W{r['week']} {r['away_team']}@{r['home_team']}")
             print(f"  market_spread (home side) = {market_spread:.2f} ({market_src})")
             print(f"  elo_spread = {elo_spread:.2f}")
