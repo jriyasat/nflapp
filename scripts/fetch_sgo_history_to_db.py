@@ -45,7 +45,7 @@ def fetch_historical(start_date='2024-01-01', api_key=None):
             break
         # Use data._get_json with caching (1440 minutes = 24h)
         data = dl._get_json(SGO_EVENTS, f"sgo_historical_{start_date.replace('-','')}.json",
-                            1440, params={
+                            9999999, params={
                                 "leagueID": "NFL",
                                 "startsAfter": starts_after,
                                 "startsBefore": starts_before,

@@ -77,10 +77,11 @@ def load_history():
         st.error(f"Failed to load history: {e}")
         return pd.DataFrame()
 
-def append_history(config_dict, backtest_results=None):
+def append_history(config_dict, backtest_results=None, test_name=""):
     """Append a new tuning record to history CSV."""
     record = {
         "timestamp": datetime.datetime.now().isoformat(),
+        "test_name": test_name,
         **{k: config_dict.get(k, "") for k in DEFAULTS.keys() if k not in ["admin_secret", "superadmin_secret"]}
     }
     
@@ -535,8 +536,8 @@ with tab1:
     config = load_config()
     
     # Password check
-    admin_secret = config.get("admin_secret", "admin123")
-    superadmin_secret = config.get("superadmin_secret", "superadmin123")
+    admin_secret = config.get("admin_secret", "SET_A_SECRET")
+    superadmin_secret = config.get("superadmin_secret", "SET_A_SUPER_SECRET")
     entered = st.text_input("Admin password", type="password")
     if entered:
         entered_hash = hashlib.sha256(entered.encode()).hexdigest()[:8]
@@ -749,8 +750,8 @@ with tab1:
                 "ryoe_multiplier": ryoe_multiplier,
                 "separation_multiplier": separation_multiplier,
                 "cushion_multiplier": cushion_multiplier,
-                "pass_volume_factor": pass_volume_factor,
-                "rush_volume_factor": rush_volume_factor,
+                "props_pass_volume_factor": pass_volume_factor,
+                "props_rush_volume_factor": rush_volume_factor,
                 "ypp_weight": ypp_weight,
                 "elo_weight": elo_weight,
                 "sentiment_weight": sentiment_weight,
@@ -858,7 +859,7 @@ with tab3:
     st.caption("Super‑admin only – staged weight tuning with walk‑forward backtests")
 
     config = load_config()
-    superadmin_secret = config.get("superadmin_secret", "superadmin123")
+    superadmin_secret = config.get("superadmin_secret", "SET_A_SUPER_SECRET")
     entered = st.text_input("Superadmin password", type="password")
     if entered:
         entered_hash = hashlib.sha256(entered.encode()).hexdigest()[:8]
@@ -910,8 +911,8 @@ with tab3:
         st.info("""
         ### Slider Impact
         * **snap_share_weight / target_share_weight** → Player Props only
-        * **pass_volume_factor / rush_volume_factor** → Player Props + Sides/Totals (via YPP volume scaling)
-        * **ypp_weight / elo_weight** → Sides/Totals only
+        * **pass_volume_factor / rush_volume_factor** → Player Props only
+        * **ypp_weight / elo_weight** → Sides/Totals only (within the 15% model prior; market anchor remains 85%)
         """)
         
         # Edge Distribution Histogram
@@ -1048,8 +1049,8 @@ with tab4:
     
     # Password check (same as tab1)
     config = load_config()
-    admin_secret = config.get("admin_secret", "admin123")
-    superadmin_secret = config.get("superadmin_secret", "superadmin123")
+    admin_secret = config.get("admin_secret", "SET_A_SECRET")
+    superadmin_secret = config.get("superadmin_secret", "SET_A_SUPER_SECRET")
     entered = st.text_input("Admin password", type="password", key="overseer_pw")
     if entered.strip() == admin_secret.strip() or entered.strip() == superadmin_secret.strip():
         st.success("✅ Access granted")
