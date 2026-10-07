@@ -20,14 +20,27 @@ def find_py_files(root):
             if f.endswith('.py'):
                 yield os.path.join(dirpath, f)
 
+def is_comment_line(line):
+    """Return True if line is a comment (ignoring leading whitespace)."""
+    stripped = line.lstrip()
+    return stripped.startswith('#')
+
 def check_sign_flip(content, path):
     """Detect the sign-flip bug pattern."""
+    # Skip test files (they contain the pattern as comment)
+    if '/tests/' in path:
+        return []
+    
     lines = content.split('\n')
     errors = []
     for i, line in enumerate(lines):
+        if is_comment_line(line):
+            continue
         if 'market_spread = -float(r["spread_line"])' in line:
             # Look ahead a few lines for home_cov using market_spread
             for j in range(i, min(i+5, len(lines))):
+                if is_comment_line(lines[j]):
+                    continue
                 if 'home_cov' in lines[j] and 'market_spread' in lines[j]:
                     # Check if it's the buggy formula
                     if 'result' in lines[j] and '-' in lines[j] and 'market_spread' in lines[j]:
@@ -43,18 +56,22 @@ def check_market_get_spread(content, path):
         # Context line
         line_no = content[:m.start()].count('\n') + 1
         line = content.split('\n')[line_no-1]
+        if is_comment_line(line):
+            continue
         errors.append(f'{path}:{line_no}: market.get("spread") used (predictor only emits home_spread)')
     return errors
 
 def check_clv_variable(content, path):
     """Warn about 'clv' variable that might be mislabeled."""
-    # Look for assignment clv = ... mean()
-    pattern = r'\bclv\s*=\s*[^;]+\.mean\(\)'
+    # Look for assignment clv = ... mean() on the same line
+    pattern = r'\bclv\s*=\s*[^;\n]*\.mean\(\)'
     matches = re.finditer(pattern, content)
     errors = []
     for m in matches:
         line_no = content[:m.start()].count('\n') + 1
         line = content.split('\n')[line_no-1]
+        if is_comment_line(line):
+            continue
         errors.append(f'{path}:{line_no}: clv variable defined as mean edge (rename to avg_edge?)')
     return errors
 
@@ -66,6 +83,10 @@ def main():
         # Skip virtual environments and .git
         if '/.venv/' in py_path or '/.git/' in py_path:
             continue
+        # Skip this script itself (avoids false positives from its own docstring)
+        if py_path.endswith('check_grading_patterns.py'):
+            continue
+        
         try:
             with open(py_path, 'r', encoding='utf-8') as f:
                 content = f.read()

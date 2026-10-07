@@ -92,11 +92,11 @@ def run_backtest(threshold=2.0):
     win = df["pick_won"].sum() if n > 0 else 0
     win_pct = (win / n * 100) if n > 0 else 0
     roi = (win - (n - win)) * 100 / n if n > 0 else 0  # -110 odds
-    clv = df["edge"].mean() if n > 0 else 0
-    return n, win_pct, roi, clv
+    avg_edge = df["edge"].mean() if n > 0 else 0
+    return n, win_pct, roi, avg_edge
 
 if __name__ == "__main__":
     import numpy as np
     for thresh in [1.5, 2.0]:
-        n, win_pct, roi, clv = run_backtest(thresh)
+        n, win_pct, roi, avg_edge = run_backtest(thresh)
         print(f"Threshold {thresh}: n={n}, win%={win_pct:.1f}, ROI={roi:.1f}%, avg Avg edge={avg_edge:.2f} pts")
