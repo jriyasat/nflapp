@@ -10,6 +10,6 @@
   "elo_weight": 0.03,
   "market_weight": 0.8,
   "test_name": "tune_market80_ypp97",
-  "admin_secret": "admin123",
-  "superadmin_secret": "superadmin123"
+  "admin_secret": "SET_A_SECRET",
+  "superadmin_secret": "SET_A_SUPER_SECRET"
 }

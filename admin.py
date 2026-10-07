@@ -25,11 +25,13 @@ DEFAULTS = {
     "cushion_multiplier": 1.0,
     "pass_volume_factor": 1.0,
     "rush_volume_factor": 1.0,
+    "props_pass_volume_factor": 1.0,
+    "props_rush_volume_factor": 1.0,
     "ypp_weight": 0.85,
     "elo_weight": 0.15,
     "market_weight": 0.85,
-    "admin_secret": "admin123",
-    "superadmin_secret": "superadmin123"
+    "admin_secret": "SET_A_SECRET",
+    "superadmin_secret": "SET_A_SUPER_SECRET"
 }
 
 # Market groups for labeling
@@ -39,8 +41,8 @@ MARKET_AFFECTS = {
     "ryoe_multiplier": "🧠 Player Props (rush yards)",
     "separation_multiplier": "🧠 Player Props (receiving yards)",
     "cushion_multiplier": "🧠 Player Props (receiving yards)",
-    "pass_volume_factor": "📈 Both (team pass attempts → props + sides/totals)",
-    "rush_volume_factor": "📈 Both (team rush attempts → props + sides/totals)",
+    "pass_volume_factor": "📈 Player Props only (team pass attempts)",
+    "rush_volume_factor": "📈 Player Props only (team rush attempts)",
     "ypp_weight": "🏈 Sides/Totals (YPP vs Elo blend)",
     "elo_weight": "🏈 Sides/Totals (YPP vs Elo blend)"
 }

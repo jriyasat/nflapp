@@ -10,5 +10,5 @@
   "elo_weight": 0.75,
   "sentiment_weight": 0.09,
   "sentiment_only_threshold": 1.5,
-  "admin_secret": "admin123"
+  "admin_secret": "SET_A_SECRET"
 }
