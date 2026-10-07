@@ -191,15 +191,19 @@ def main():
     sections = []
 
     # ---- line movers (nflverse current lines for upcoming games) ----
-    cur_lines, movers = {}, []
+    cur_lines, movers, finished = {}, [], set()
     for _, g in wk.iterrows():
         label = f"{g['away_team']} @ {g['home_team']}"
         if pd.notna(g["spread_line"]):
             cur_lines[label] = {"spread_away": float(g["spread_line"]),
                                 "total": float(g["total_line"]) if pd.notna(g["total_line"]) else None}
+        if pd.notna(g["result"]):
+            finished.add(label)  # over: its "move" is just the closing line vs yesterday's snapshot
     old_lines = load_snap(SNAP_LINES)
     if old_lines is not None:
         for label, cur in cur_lines.items():
+            if label in finished:
+                continue
             old = old_lines.get(label)
             if not old:
                 continue
