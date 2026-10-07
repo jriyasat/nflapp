@@ -1,0 +1,26 @@
+jobs:
+  test-grading:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+    - name: Install dependencies
+      run: pip install pandas numpy pytest
+    - name: Run grading unit tests
+      run: python -m pytest tests/test_grading.py -v
+    - name: Run grading pattern checker
+      run: python scripts/check_grading_patterns.py
+name: Grading Logic CI
+'on':
+  pull_request:
+    branches:
+    - v2
+    - main
+  push:
+    branches:
+    - v2
+    - main
