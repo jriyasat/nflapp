@@ -91,8 +91,9 @@ def main():
                 tabbr = block.get("team", {}).get("abbreviation", "?")
                 for inj in block.get("injuries", []):
                     if str(inj.get("status", "")).lower() in ("out", "inactive"):
-                        pos = inj.get("position", {})
-                        pos = pos.get("abbreviation", "") if isinstance(pos, dict) else str(pos or "")
+                        # position lives at athlete.position in ESPN's payload
+                        # (top-level inj["position"] does not exist — blank positions bug)
+                        pos = ((inj.get("athlete") or {}).get("position") or {}).get("abbreviation", "")
                         inact.append((tabbr, inj.get("athlete", {}).get("displayName", "?"), pos))
         else:
             for team in (g["away_team"], g["home_team"]):
