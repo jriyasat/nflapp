@@ -46,3 +46,5 @@ temp/
 # the safeguards commit and CI found "file or directory not found".
 !tests/
 !tests/**
+# ...but never byte-code caches inside tests/
+tests/**/__pycache__/
