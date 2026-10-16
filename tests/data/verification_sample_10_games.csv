@@ -1,0 +1,11 @@
+season,week,away_team,home_team,spread_line,result,home_cov_expected,home_covers
+2024,1,GB,PHI,2.5,10.0,7.5,True
+2024,1,PIT,ATL,1.5,3.0,1.5,True
+2024,1,HOU,IND,2.5,-3.0,-5.5,False
+2024,1,MIN,NYG,4.5,0.0,-4.5,False
+2024,1,LV,LAC,3.0,0.0,-3.0,False
+2024,1,CHI,GB,-2.5,-7.0,-4.5,False
+2024,2,SF,DAL,3.0,10.0,7.0,True
+2024,2,NE,NYJ,1.5,-12.0,-13.5,False
+2024,3,KC,BAL,-3.0,3.0,6.0,True
+2024,4,PHI,DAL,-1.0,14.0,15.0,True

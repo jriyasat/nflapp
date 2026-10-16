@@ -5,9 +5,9 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Data directories
-data/
-UPLOADS/
+# Data directories (repo root only — do NOT ignore tests/data/)
+/data/
+/UPLOADS/
 
 # Environment/secrets
 .env
@@ -23,7 +23,7 @@ auth.yaml
 *.bak
 *.old
 
-# Debug/test scripts (one-off) - root level
+# Debug/test scripts (one-off) - any level
 debug_*.py
 test_*.py
 verify_*.py
@@ -40,3 +40,9 @@ props_model_new.py
 # Temporary
 tmp/
 temp/
+
+# The REAL test suite must be tracked (overrides debug/test name patterns above).
+# Without these lines, test_*.py silently excluded tests/test_grading.py from
+# the safeguards commit and CI found "file or directory not found".
+!tests/
+!tests/**
