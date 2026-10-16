@@ -9,7 +9,7 @@ jobs:
       with:
         python-version: '3.13'
     - name: Install dependencies
-      run: pip install pandas numpy pytest
+      run: pip install -r requirements.txt pytest
     - name: Run grading unit tests
       run: python -m pytest tests/test_grading.py -v
     - name: Run grading pattern checker
