@@ -4,7 +4,7 @@ These safeguards were added after the **sign‑flip bug** (2026‑10‑06) corru
 
 ## 1. Git pre‑commit hook
 
-A hook installed at `./git/hooks/pre‑commit` (symlink to `scripts/check_grading_patterns.py`) runs before each commit.
+A hook installed at `<main‑repo>/.git/hooks/pre‑commit` (symlink to `scripts/check_grading_patterns.py`) runs before each commit. In this setup the main repo is `~/nfl‑edge`, so the hook lives at `/Users/jeff/nfl‑edge/.git/hooks/pre‑commit`. Note: git resolves the hooks directory from the **main** repo (`git rev-parse --git-path hooks`), not the worktree's own `hooks/` folder — worktree‑local hooks are ignored. The checker scans the repo via the current working directory (git runs hooks from the repo top‑level), so it also works when invoked through the symlink.
 
 **What it checks:**
 - `market_spread = -float(r["spread_line"])` followed by `home_cov = result - market_spread` (sign‑flip bug)

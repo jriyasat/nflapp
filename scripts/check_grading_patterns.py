@@ -76,7 +76,9 @@ def check_clv_variable(content, path):
     return errors
 
 def main():
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Root = explicit arg, or CWD (git hooks run with CWD at repo top-level).
+    # Using __file__ breaks when the checker is installed via a symlink elsewhere.
+    root = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
     all_errors = []
     
     for py_path in find_py_files(root):
