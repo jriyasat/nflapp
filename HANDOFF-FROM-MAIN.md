@@ -173,3 +173,19 @@ it — fix it or drop it; two competing stat stores is how phantom data happens.
   unchanged (add that sentence inline in the Lab).
 - Apply is DISABLED until `test_name` is non-empty (Save draft stays free-form).
   These three are the audit's first checklist items.
+
+
+## 14. HANDLE tab addition (Action Network public betting)
+
+**Added:** a new HANDLE tab (💰 HANDLE) on the per-game page showing public betting percentages and derived money sharp indicators.
+
+**Data source:** Action Network free public betting page (`https://www.actionnetwork.com/nfl/public-betting`) scraped with BeautifulSoup4. Bet percentages are available for all games; money percentages unlocked only for the first two games per week (free tier).
+
+**Implementation:**
+- `data.py`: new `actionnetwork_public_betting()` function – fetches HTML, caches for 1 hour (`AN_BETTING_CACHE_MIN = 60`), returns dict keyed by (away_abbr, home_abbr) with bet_pct_away/bet_pct_home/money_pct_away/money_pct_home/diff.
+- `app.py`: new `handle_tab(g, away, home)` function – displays metrics and sharp side detection.
+- UI: inserted as 10th tab after Sentiment Lab.
+
+**Decision:** Money percentages are locked for most games; we show "Locked" and a note. Sharp side detection uses money‑bet diff (if available) else future enhancement via line‑movement inference.
+
+**Status:** installed `beautifulsoup4>=4.12.0` in container, code delivered, tested with live data (14 games parsed).

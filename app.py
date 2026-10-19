@@ -480,6 +480,8 @@ if _qp:  # deep-link support, e.g. ?page=journal from the bet-slip success link
     del st.query_params["page"]
     if _qp == "journal":
         st.session_state["_goto"] = "📒 Bet Journal"
+    elif _qp == "sentiment_lab":
+        st.session_state["_goto"] = "🧠 Sentiment Lab"
 if "_goto" in st.session_state:
     st.session_state["nav_radio"] = st.session_state.pop("_goto")
 page = st.sidebar.radio("View", views, key="nav_radio")
@@ -1721,6 +1723,10 @@ def sentiment_lab_page():
                         st.warning("News collection requires sentiment module; not available.")
     
 
+if page == "🧠 Sentiment Lab":
+    sentiment_lab_page()
+    st.stop()
+
 def form_df(team):
     rows = an.last_n(games, team, 3)
     if not rows:
@@ -1761,6 +1767,15 @@ def injuries_block(away, home):
             st.info("No injuries listed (official report publishes Wednesday of game week).")
 
 # ---------------- predictor UI ----------------
+def fmt_ml(v):
+    return f"{v:+d}" if isinstance(v, (int, float)) else "-"
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _line_history(game_label):
+    """Line-movement history per game (Turso roundtrip — cache 10 min so open
+    games don't each pay a network call on every rerun)."""
+    return db.line_history(game_label)
+
 def fmt_spread(sp, home, away):
     """home-perspective spread (neg=home fav) -> 'SEA -3.1'"""
     return f"{home} {sp:.1f}" if sp < 0 else f"{away} {-sp:.1f}"
@@ -2043,6 +2058,73 @@ def sgp_tab(g, away, home):
                "Only bet the SGP if your book's price is *longer* than Fair — books adjust for "
                "correlation too, so compare before betting. Boost ≠ guaranteed edge.")
 
+def lines_block(g, away, home, espn_o, books):
+    _pre_game_tag(away, home)
+    # model context — shared by the chart overlay and the pinned table row
+    wind_mph = None
+    if pd.notna(g["gameday"]) and g["gameday"] <= pd.Timestamp.now() + pd.Timedelta(days=15):
+        wind_mph, _ = wx.wind_for_game(g)
+    pred = pr.predict_game(g, elo, books=books, espn=espn_o,
+                           injuries=nv_injuries, wind_mph=wind_mph)
+    hist = _line_history(f"{away} @ {home}")
+    if len(hist) >= 2:
+        st.caption("📉 Line movement (daily snapshots, away-team spread) — flat line = current model")
+        m1, m2 = st.columns(2)
+        move = hist.set_index("ts")[["spread_away"]].copy()
+        move["🤖 model (now)"] = round(-pred["model_spread"], 2)  # home-persp -> away-persp
+        m1.line_chart(move, y_label="spread (away)")
+        tot = hist.set_index("ts")[["total"]].copy()
+        if pred.get("model_total") is not None:
+            tot["🤖 model (now)"] = round(pred["model_total"], 1)
+        m2.line_chart(tot, y_label="total")
+    rows = []
+    if books:
+        for bk, e in books.items():
+            rows.append({
+                "Book": e.get("title", bk),
+                "Spread": f"{home} {e['home_spread']:+.1f} ({fmt_ml(e.get('home_spread_price'))})"
+                          if e.get("home_spread") is not None else "-",
+                "Total": f"{e['total']:.1f} (O {fmt_ml(e.get('over_price'))})"
+                         if e.get("total") is not None else "-",
+                "ML": f"{away} {fmt_ml(e.get('away_ml'))} / {home} {fmt_ml(e.get('home_ml'))}",
+            })
+    elif espn_o:
+        rows.append({
+            "Book": espn_o.get("provider", "ESPN") + " (single book)",
+            "Spread": f"{espn_o.get('details', '-')}",
+            "Total": f"{espn_o['over_under']:.1f}" if espn_o.get("over_under") else "-",
+            "ML": f"{away} {fmt_ml(espn_o.get('away_ml'))} / {home} {fmt_ml(espn_o.get('home_ml'))}",
+        })
+    # pinned 🤖 MODEL row: model spread + total next to the market, ⚡ when |edge| >= VALUE_EDGE_MIN
+    edge = pred.get("edge_pts")
+    badge = " ⚡ VALUE" if edge is not None and abs(edge) >= VALUE_EDGE_MIN else ""
+    side = home if (edge or 0) > 0 else away
+    rows.insert(0, {
+        "Book": f"🤖 MODEL{badge}",
+        "Spread": fmt_spread(pred["model_spread"], home, away)
+                  + (f" (edge {abs(edge):.1f} on {side})" if badge else ""),
+        "Total": f"{pred['model_total']:.1f}" if pred.get("model_total") is not None else "-",
+        "ML": "—",
+    })
+    st.table(pd.DataFrame(rows))
+    if not books and not espn_o:
+        st.caption("No live lines posted yet — model row is an Elo-only estimate.")
+    if books:
+        best = an.line_shopping(books)
+        if best.get("books_disagree"):
+            st.success("⚡ Books disagree on the number -- line shopping value available")
+        tags = []
+        if best.get("home_spread"):
+            b = best["home_spread"]; tags.append(f"Best {team_md(home, 18)} spread: {b['point']:+.1f} @ {b['book']}")
+        if best.get("away_spread"):
+            b = best["away_spread"]; tags.append(f"Best {team_md(away, 18)} spread: {b['point']:+.1f} @ {b['book']}")
+        if best.get("over"):
+            tags.append(f"Best Over: {best['over']['point']:.1f} @ {best['over']['book']}")
+        if best.get("under"):
+            tags.append(f"Best Under: {best['under']['point']:.1f} @ {best['under']['book']}")
+        if tags:
+            st.markdown(" • ".join(tags), unsafe_allow_html=True)
+
 # ---------------- bet slip UI ----------------
 def slip_tab(g, away, home):
     """Add this game as a parlay leg. The slip is reviewed & saved on the Journal page."""
@@ -2175,6 +2257,58 @@ def sentiment_tab(g, away, home):
         st.error(f"Error loading sentiment: {e}")
 
 
+def handle_tab(g, away, home):
+    """Handle tab: public betting percentages (Action Network) and derived money flow."""
+    st.subheader("💰 HANDLE")
+    st.caption(f"Public betting splits for {away} @ {home}")
+    
+    import data as dl
+    try:
+        an_data = dl.actionnetwork_public_betting()
+    except Exception as e:
+        st.error(f"Failed to fetch handle data: {e}")
+        an_data = {}
+    
+    key = (away, home)
+    if key not in an_data:
+        st.warning("Handle data not available for this matchup.")
+        st.info("Action Network provides public bet percentages for all games, but money percentages are limited to two games per week (free tier).")
+        # Optional: compute derived money flow from line movement / vig skew
+        return
+    
+    vals = an_data[key]
+    bet_away = vals.get('bet_pct_away')
+    bet_home = vals.get('bet_pct_home')
+    money_away = vals.get('money_pct_away')
+    money_home = vals.get('money_pct_home')
+    diff = vals.get('diff')
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Public Bets (Away)", f"{bet_away}%" if bet_away is not None else "N/A")
+        st.metric("Public Bets (Home)", f"{bet_home}%" if bet_home is not None else "N/A")
+    with col2:
+        st.metric("Money % (Away)", f"{money_away}%" if money_away is not None else "Locked")
+        st.metric("Money % (Home)", f"{money_home}%" if money_home is not None else "Locked")
+    with col3:
+        if diff is not None:
+            st.metric("Money-Bet Diff (Home)", f"{diff:+.1f}%")
+            if diff > 0:
+                st.success("Sharp side: HOME (money heavier than bets)")
+            elif diff < 0:
+                st.success("Sharp side: AWAY (money lighter than bets)")
+            else:
+                st.info("Money matches bets")
+        else:
+            st.metric("Diff", "N/A")
+    
+    if money_away is None or money_home is None:
+        st.info("💰 Money percentages are locked for this game. Action Network's free tier only unlocks the first two games each week.")
+    
+    # Add derived money flow from line movement (future enhancement)
+    st.caption("Sharp side detection: money‑bet diff >0 indicates sharp money on that side.")
+
+
 # ---------------- upcoming games board (model vs market, sortable/downloadable) ----------------
 st.subheader(f"📋 Week {week} Upcoming Games")
 _board = _board_rows(int(season), int(week))
@@ -2244,7 +2378,7 @@ def render_game(gi, g):
         for i, (tag, detail, lean) in enumerate(spots):
             cols[i % len(cols)].warning(f"**{tag}**{' → ' + lean if lean else ''}\n\n{detail}")
 
-    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (last 3)", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip", "🧠 Sentiment Lab"])
+    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (last 3)", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip", "🧠 Sentiment Lab", "💰 HANDLE"])
     with tabs[0]:
         predictor_tab(g, away, home)
     with tabs[1]:
@@ -2289,6 +2423,8 @@ def render_game(gi, g):
             paywall("The bet slip (parlays + journal)")
     with tabs[8]:
         sentiment_tab(g, away, home)
+    with tabs[9]:
+        handle_tab(g, away, home)
 
 
 upcoming_games = week_games[week_games["result"].isna()]

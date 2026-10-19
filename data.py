@@ -11,9 +11,11 @@ Sources:
 import json
 import os
 import time
+import re
 
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(BASE, "data")
@@ -25,6 +27,7 @@ ESPN_INJURIES = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/inju
 ODDS_API = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds/"
 ESPN_NEWS = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/news"
 CBS_RSS = "https://www.cbssports.com/rss/headlines/nfl/"
+ACTIONNETWORK_PUBLIC_BETTING = "https://www.actionnetwork.com/nfl/public-betting"
 
 # betting-relevant headline keywords (injuries + roster movement)
 NEWS_INJURY_KW = ("injur", "placed on ir", "injured reserve", "activated", "waived", "waive",
@@ -37,6 +40,7 @@ GAMES_CACHE_H = 12
 ESPN_CACHE_MIN = 10
 ODDS_CACHE_MIN = 45  # free tier is 500 req/month -- be stingy
 PROP_CACHE_MIN = 6 * 24 * 60  # player props: 6-day shared disk cache, warmed Mon+Sat by prop_warm.py cron (spread/total lines stay at 45 min)
+AN_BETTING_CACHE_MIN = 60  # Action Network public betting data cache (1 hour)
 
 
 def _fresh(path, max_age_sec):
@@ -732,6 +736,127 @@ _PS_COLS = ["player_id", "player_display_name", "position", "position_group",
             "rushing_tds",  # props_model proj_rush_td (RB) — missing col = KeyError on any RB projection
             "receptions", "targets", "receiving_yards", "receiving_tds"]
 
+
+def actionnetwork_public_betting():
+    """Fetch and parse Action Network's public‑betting page.
+    Returns: { (away_abbr, home_abbr): {
+        'bet_pct_away': float, 'bet_pct_home': float,
+        'money_pct_away': float, 'money_pct_home': float,
+        'diff': float } }
+    Cached for AN_BETTING_CACHE_MIN minutes.
+    """
+    url = ACTIONNETWORK_PUBLIC_BETTING
+    cache_path = os.path.join(CACHE, "an_betting.html")
+    json_cache_path = os.path.join(CACHE, "an_betting.json")
+    
+    # If we have a fresh parsed JSON cache, use it directly
+    if _fresh(json_cache_path, AN_BETTING_CACHE_MIN * 60):
+        try:
+            with open(json_cache_path) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    
+    # Otherwise fetch fresh HTML
+    html = None
+    if _fresh(cache_path, AN_BETTING_CACHE_MIN * 60):
+        try:
+            with open(cache_path, encoding="utf-8") as f:
+                html = f.read()
+        except Exception:
+            pass
+    
+    if html is None:
+        try:
+            hdrs = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                  "Chrome/126.0 Safari/537.36"}
+            r = requests.get(url, timeout=30, headers=hdrs)
+            r.raise_for_status()
+            html = r.text
+            tmp = cache_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(html)
+            os.replace(tmp, cache_path)
+        except Exception as e:
+            # fallback to stale HTML if we have it
+            if os.path.exists(cache_path):
+                with open(cache_path, encoding="utf-8") as f:
+                    html = f.read()
+            else:
+                return {}
+    
+    # Parse HTML
+    def parse(html):
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+        except Exception:
+            soup = None
+        rows = []
+        if soup:
+            rows = soup.find_all(class_=re.compile(r"mobile-public-betting__row"))
+        else:
+            # fallback regex: find all rows via regex (less robust)
+            rows = []
+        # skip header rows
+        data_rows = []
+        for r in rows:
+            if r.find(class_=re.compile(r"mobile-public-betting__column-header")):
+                continue
+            data_rows.append(r)
+        out = {}
+        for r in data_rows:
+            # Extract team abbreviations from game-info__team--mobile spans
+            away_abbr = None
+            home_abbr = None
+            for team_div in r.find_all(class_=re.compile(r"game-info__team--mobile")):
+                abbr = team_div.get_text(strip=True)
+                if abbr.isupper() and len(abbr) <= 3:
+                    if away_abbr is None:
+                        away_abbr = abbr
+                    else:
+                        home_abbr = abbr
+            if away_abbr is None or home_abbr is None:
+                continue
+            # Get all percentages in the row
+            text = r.get_text(" ")
+            percents = re.findall(r'(\d{1,3})\s*%', text)
+            # Also find diff with sign
+            diff_match = re.search(r'([+-]\d+)\s*%', text)
+            diff = float(diff_match.group(1)) if diff_match else None
+            # Determine what we have
+            if len(percents) == 5:
+                away_bet, home_bet, away_money, home_money, _ = map(int, percents)
+                money_away = away_money
+                money_home = home_money
+            elif len(percents) == 2:
+                away_bet, home_bet = map(int, percents)
+                money_away = None
+                money_home = None
+            else:
+                away_bet = int(percents[0]) if len(percents) > 0 else None
+                home_bet = int(percents[1]) if len(percents) > 1 else None
+                money_away = int(percents[2]) if len(percents) > 2 else None
+                money_home = int(percents[3]) if len(percents) > 3 else None
+            out[(away_abbr, home_abbr)] = {
+                'bet_pct_away': away_bet,
+                'bet_pct_home': home_bet,
+                'money_pct_away': money_away,
+                'money_pct_home': money_home,
+                'diff': diff,
+            }
+        return out
+    
+    parsed = parse(html)
+    # Save parsed JSON for next time
+    try:
+        tmp = json_cache_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(parsed, f)
+        os.replace(tmp, json_cache_path)
+    except Exception:
+        pass
+    return parsed
 
 def load_player_stats():
     """Weekly player stats: last completed season + current. Cached 12h."""
