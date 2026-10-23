@@ -276,6 +276,7 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
             ev = p * (100 / 110) - (1 - p)
             b = 100 / 110
             kelly = max((b * p - (1 - p)) / b, 0) / 4  # quarter kelly
+            print(f"DEBUG kelly {side}: p={p:.3f}, b={b:.3f}, kelly={kelly:.4f}")
             out[f"ev_{side}"] = ev
             out[f"kelly_{side}"] = kelly
         if market["home_spread"] <= -7:

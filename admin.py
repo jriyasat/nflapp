@@ -558,15 +558,20 @@ with tab1:
             available_cols = [c for c in display_cols if c in history_df.columns]
             if available_cols:
                 total_records = len(history_df)
-                # Slider to choose how many recent records to display
-                show_count = st.slider(
-                    "Show last N records",
-                    min_value=3,
-                    max_value=total_records,
-                    value=min(5, total_records),
-                    step=1,
-                    help="Display the most recent N tuning runs."
-                )
+                st.write(f"DEBUG: total_records={total_records}")
+                if total_records >= 3:
+                    # Slider to choose how many recent records to display
+                    show_count = st.slider(
+                        "Show last N records",
+                        min_value=3,
+                        max_value=total_records,
+                        value=min(5, total_records),
+                        step=1,
+                        help="Display the most recent N tuning runs."
+                    )
+                else:
+                    show_count = total_records
+                    st.caption(f"Showing all {total_records} records (too few for slider).")
                 display_df = history_df[available_cols].tail(show_count)
                 st.dataframe(display_df, use_container_width=True)
                 # Option to show all

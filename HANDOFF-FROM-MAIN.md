@@ -189,3 +189,90 @@ it — fix it or drop it; two competing stat stores is how phantom data happens.
 **Decision:** Money percentages are locked for most games; we show "Locked" and a note. Sharp side detection uses money‑bet diff (if available) else future enhancement via line‑movement inference.
 
 **Status:** installed `beautifulsoup4>=4.12.0` in container, code delivered, tested with live data (14 games parsed).
+
+## 15. Main changes e13590c → 772a8f1 (2026-09-26 → 2026-10-08) — READ FIRST
+
+**✈️ Travel tab (NEW — port this):** per-game tab showing a team's season travel
+on a US map. `analytics.py`: `STADIUMS` (all 32 venues lat/lon), `travel_stops()`
+(one stop per played game, venue coords, W/L/T, leg miles), `next_trip_mi()`.
+Miles are ROUND TRIPS from home base (teams fly home after every game — Jeff's
+rule): away = 2× home→venue, home = 0. `app.py travel_tab`: team toggle, played
+games only, hub-and-spoke lines home→road venue, markers = round-trip miles for
+road games / "H" for home (green W / red L), repeat-venue labels stacked, neutral
+sites as footnotes, cumulative-miles caption. **RENDER WITH PLOTLY
+(`plotly.graph_objects.Scattergeo`, mode="text") — NOT pydeck: pydeck 0.9.x
+(deck.gl v9) TextLayer silently never renders.** Static CONUS frame
+(`scope="usa"`, dragmode off, no modebar). requirements.txt: plotly==7.1.0
+(pydeck removed). Verify map/figure work headless with kaleido write_image + OCR.
+
+**CRITICAL data facts (backtest-affecting):**
+- nflverse `spread_line` is AWAY-perspective (positive = away underdog). Home
+  covers iff result > spread_line; away covers iff result < spread_line. (Your
+  walk-forward family has this flipped — see the 2026-10-06 audit.)
+- nflverse schedules release DROPPED plain games.csv (404): use games.csv.gz +
+  gzip.decompress (main data.py). Your data.py still points at the dead URL —
+  cold instances crash on it.
+- Download sites write pid-unique temp files (concurrent cron race fix).
+- Travel distance/fatigue ATS: DEAD with numbers (docs/BACKTESTS.md graveyard
+  #10) — do not propose a travel model adjustment.
+
+**Gust paper-trade experiment (LIVE on main — do not delete):**
+`tracker.log_gust_papers` logs totals UNDER (experimental=1) for outdoor games
+with forecast gusts ≥20 mph + real books total; graded at close, excluded from
+the headline record, 🧪 section on Track Record. `weather.py` fetches
+wind_gusts_10m alongside sustained (kickoff_gust()). predictions table has an
+additive `experimental` column. Backtest basis + caveats in docs/BACKTESTS.md.
+
+**Pipeline health:** `scripts/_common.run` writes each cron's status to Turso
+shared_cache `cron_health` via `_health_record`; Settings shows 🏥 Pipeline
+health. Every cron script must use run(main) (injury_report_watch was the one
+outlier — fixed).
+
+**Alert-script fixes (all on main, port if you touch these scripts):**
+- injury_report_watch: os._exit(0) immediately after print() was killing the
+  process WITHOUT flushing stdout — alerts died silently for weeks. Never
+  os._exit after printing; let run(main)/die() flush.
+- inactives_watch: ESPN injury position lives at athlete.position.abbreviation
+  (no top-level position key); header shows per-team out counts
+  "ATL [0 out] @ NO [3 out] (kickoff 8:15 PM)".
+- morning_brief: LINE MOVERS skip finished games (nflverse spread_line becomes
+  the CLOSING line post-final); injury escalations + watch include positions.
+- Season tab (renamed from Form): full-season results, 5 rows visible, scrolls.
+
+**SGP/props display layer (§11 recap, still binding):** lean-only legs,
+over_price_avg chain, player_id in projection rows, Avg book price column.
+The 2026-10-06 full audit (docs/v2-reviews/) lists your 3 missing ports.
+
+## 16. Kelly stake bug fix (v2, 2026-10-07)
+
+**Bug:** predictor.py line 278 had `max((b * p - (1 - p)) / b,133) / 4` causing all spread sides to return 33.25 (133/4) → displayed as "3325.0% of bankroll" on game-detail page.
+
+**Fix:** Changed `,133)` to `, 0)` (commit 34dede4). Verified in container logs: DEBUG kelly values now show correct fractions (e.g., 0.0343 → 3.4%). UI now shows realistic percentages or "no bet".
+
+**Action:** Ensure any future predictor modifications preserve the correct floor (0). DeepSeek's fix list should include this item.
+
+## 16. HANDLE tab (Action Network public betting) — v2-only, Jeff-approved (2026-10-08)
+
+Jeff confirmed: the HANDLE tab is v2-only dev work and fine to continue.
+These are the conditions:
+
+- **Display-only.** Public bet%/money% (and any "sharp side" label) must NOT
+  influence logged picks, edges, stars, or any spread/total adjustment — same
+  gate as the sentiment layer (§4 of the 2026-10-06 audit). If it ever feeds a
+  pick, it needs a `USE_HANDLE`-style env flag (default false) + a pick flag,
+  and only after passing the 5-year walk-forward gate like everything else.
+- **Expect it to be dead for picking.** Public betting splits are fully
+  market-visible information — every angle in that class (10 gravestones in
+  docs/BACKTESTS.md) has died to the market. Build it as a fan feature/teaching
+  tab, not as a signal. If you want to prove otherwise, the gate is the same
+  walk-forward vs closing lines — not vibes.
+- **Scraping discipline (hard rule from main's ESPN 403 incident):** treat
+  Action Network as a hostile/WAF'd source — circuit-breaker + SILENT skip on
+  failure, never crash-loop, never block page render, honest "unavailable"
+  state. Cached 1h is right; consider longer on repeated 403s.
+- **Money% is locked for most games** (their paywall) — showing bet% with a
+  "money% locked" note is the honest display; do not infer money% from bet%
+  and present it as data.
+- `beautifulsoup4` must be pinned in requirements.txt, and the tab must render
+  empty-state cleanly when a game has no AN data (international games, late
+  weeks) — no exceptions reaching the game page.
