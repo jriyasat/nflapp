@@ -425,11 +425,13 @@ if "_goto" in st.session_state:
     st.session_state["nav_radio"] = st.session_state.pop("_goto")
 page = st.sidebar.radio("View", page_options, key="nav_radio")
 
-# ---------------- bet journal page ----------------
-if page == "📒 Bet Journal":
+def _build_ctx(page, injuries=injuries):
+    """Build the AppContext for the current page. All inputs come from module
+    scope (computed once above, per-run) except injuries, which the Games page
+    overrides with the richer nflverse report instead of the plain ESPN one."""
     from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN, gate, paywall
-    ctx = AppContext(
+    from shared import FEATURE_GATES, VALUE_EDGE_MIN
+    return AppContext(
         games=games,
         elo=elo,
         season=season,
@@ -452,8 +454,13 @@ if page == "📒 Bet Journal":
         CONTACT_EMAIL=CONTACT_EMAIL,
         FEATURE_GATES=FEATURE_GATES,
         VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
+        page=page,
     )
+
+# ---------------- bet journal page ----------------
+if page == "📒 Bet Journal":
+    from shared import gate, paywall
+    ctx = _build_ctx(page)
     if not gate(ctx, "journal"):
         st.header("📒 Bet Journal + CLV Tracker")
         paywall(ctx, "The Bet Journal + CLV Tracker")
@@ -463,33 +470,7 @@ if page == "📒 Bet Journal":
     st.stop()
 # ---------------- live page ----------------
 def live_page():
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    ctx = _build_ctx(page)
     import views.live
     views.live.live_page(ctx)
 
@@ -499,66 +480,14 @@ if page == "🔴 Live":
 
 # ---------------- pick'em page ----------------
 if page == "🏆 Pick'em":
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    ctx = _build_ctx(page)
     import views.pickem
     views.pickem.pickem_page(ctx)
     st.stop()
 
 # ---------------- news page ----------------
 def news_page():
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    ctx = _build_ctx(page)
     import views.news
     views.news.news_page(ctx)
 
@@ -568,33 +497,7 @@ if page == "📰 News":
 
 # ---------------- standings page ----------------
 def standings_page():
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    ctx = _build_ctx(page)
     import views.standings
     views.standings.standings_page(ctx)
 
@@ -604,33 +507,7 @@ if page == "🏅 Standings":
 
 # ---------------- power rankings page ----------------
 def rankings_page():
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    ctx = _build_ctx(page)
     import views.rankings
     views.rankings.rankings_page(ctx)
 
@@ -639,64 +516,12 @@ if page == "📊 Power Rankings":
     st.stop()
 # ---------------- how-it-works page ----------------
 def help_page():
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    ctx = _build_ctx(page)
     import views.help
     views.help.help_page(ctx)
 
 def terms_page():
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    ctx = _build_ctx(page)
     import views.help
     views.help.terms_page(ctx)
 
@@ -710,33 +535,7 @@ if page == "📜 Terms":
 
 # ---------------- admin: user management page ----------------
 def users_page():
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    ctx = _build_ctx(page)
     import views.users
     views.users.users_page(ctx)
 
@@ -748,33 +547,7 @@ if page == "👥 Users":
     st.stop()
 # ---------------- settings page ----------------
 def settings_page():
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    ctx = _build_ctx(page)
     import views.settings
     views.settings.settings_page(ctx)
 
@@ -783,33 +556,7 @@ if page == "⚙️ Settings":
     st.stop()
 
 if page == "📈 Track Record":
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    ctx = _build_ctx(page)
     import views.track_record
     views.track_record.track_record_page(ctx)
     st.stop()
@@ -817,80 +564,17 @@ if page == "📈 Track Record":
 # ---------------- sentiment lab page ----------------
 
 if page == "🧠 Sentiment Lab":
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    ctx = _build_ctx(page)
     import views.sentiment_lab
     views.sentiment_lab.sentiment_lab_page(ctx)
     st.stop()
-
-def form_df(team):
-    rows = an.last_n(games, team, 3)
-    if not rows:
-        return None
-    out = pd.DataFrame([{
-        "Date": r["date"], "Game": f"{r['loc']} {r['opp']}", "Score": r["score"],
-        "W/L": r["result"], "Line": f"{r['line']:+.1f}" if pd.notna(r["line"]) else "-",
-        "ATS": r["ats"], "Total": f"{r['total_line']:.1f}" if pd.notna(r["total_line"]) else "-",
-        "O/U": r["ou"],
-    } for r in rows])
-    return out
 
 # ---------------- predictor UI ----------------
 # ---------------- props UI ----------------
 
 if page == "Games":
-    from views.context import AppContext
-    from shared import FEATURE_GATES, VALUE_EDGE_MIN, gate, paywall, logo_url, team_md, logo_img, TEAM_SET, LOGO_CFG, matchup_md
-    ctx = AppContext(
-        games=games,
-        elo=elo,
-        season=season,
-        week=week,
-        weeks=weeks,
-        week_games=week_games,
-        espn_odds=espn_odds,
-        books_by_abbr=books_by_abbr,
-        injuries=nv_injuries,
-        injuries_err=injuries_err,
-        api_key=api_key,
-        props_api_key=props_api_key,
-        player_stats=player_stats,
-        def_mults=def_mults,
-        USER=USER,
-        NAME=NAME,
-        LEVEL=LEVEL,
-        IS_ADMIN=IS_ADMIN,
-        IS_PAID=IS_PAID,
-        CONTACT_EMAIL=CONTACT_EMAIL,
-        FEATURE_GATES=FEATURE_GATES,
-        VALUE_EDGE_MIN=VALUE_EDGE_MIN,
-        page=page
-    )
+    from shared import gate, paywall, logo_url, team_md, logo_img, TEAM_SET, LOGO_CFG, matchup_md
+    ctx = _build_ctx(page, injuries=nv_injuries)
 
     open_set = st.session_state.setdefault("open_games", {0})
     # ---------------- week-at-a-glance board ----------------

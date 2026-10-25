@@ -158,8 +158,6 @@ def project_game(ps, defs, team, opponent, per_pos=2, injuries=None, team_line=N
     snaps_df["norm_name"] = snaps_df["player_display_name"].apply(_norm)
     reg["norm_name"] = reg["player_display_name"].apply(_norm)
     # merge snap counts into reg
-    print(f"[DEBUG] snaps_df columns: {list(snaps_df.columns)}")
-    print(f"[DEBUG] required cols: team, season, week, norm_name, offense_snaps, offense_pct")
     reg_with_snaps = reg.merge(
         snaps_df[["team", "season", "week", "norm_name", "offense_snaps", "offense_pct"]],
         on=["team", "season", "week", "norm_name"], how="left"

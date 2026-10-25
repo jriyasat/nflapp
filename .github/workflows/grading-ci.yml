@@ -12,6 +12,8 @@ jobs:
       run: pip install -r requirements.txt pytest
     - name: Run grading unit tests
       run: python -m pytest tests/test_grading.py -v
+    - name: Run predictor/form_df/sentiment unit tests
+      run: python -m pytest tests/test_predictor_math.py tests/test_form_df.py tests/test_sentiment_wordcloud.py -v
     - name: Run grading pattern checker
       run: python scripts/check_grading_patterns.py
 name: Grading Logic CI

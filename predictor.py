@@ -190,7 +190,6 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
 
     market = consensus(books)
     market_src = "books" if market.get("n_books") else None
-    print(f"[DEBUG] market n_books={market.get('n_books')}, market_src={market_src}")
     if not market.get("n_books") and espn:
         ph, pa = american_to_prob(espn.get("home_ml")), american_to_prob(espn.get("away_ml"))
         if ph and pa:
@@ -276,7 +275,6 @@ def predict_game(game_row, elo, books=None, espn=None, injuries=None, wind_mph=N
             ev = p * (100 / 110) - (1 - p)
             b = 100 / 110
             kelly = max((b * p - (1 - p)) / b, 0) / 4  # quarter kelly
-            print(f"DEBUG kelly {side}: p={p:.3f}, b={b:.3f}, kelly={kelly:.4f}")
             out[f"ev_{side}"] = ev
             out[f"kelly_{side}"] = kelly
         if market["home_spread"] <= -7:

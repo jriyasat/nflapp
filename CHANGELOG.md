@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-10-25 (follow-up: suggestion fixes)
+
+### Changed
+- `app.py`: factored the 13 duplicated `AppContext(...)` construction sites
+  into one `_build_ctx(page, injuries=injuries)` helper. Removed a dead,
+  never-called module-level `form_df(team)` (the real one lives in
+  `views/game_detail.py`). The Games page still overrides `injuries` with
+  the richer nflverse report via `_build_ctx(page, injuries=nv_injuries)`.
+- `predictor.py`: removed two debug `print()` statements (`market n_books=...`,
+  `DEBUG kelly ...`) that fired on every request.
+- `props_model.py`: removed two debug `print()` statements (`snaps_df
+  columns: ...`, `required cols: ...`) that fired on every props-tab render.
+- `sentiment.py`: added `@st.cache_data(ttl=600)` to `collect_reddit_snippets()`,
+  `collect_exa_snippets()`, and `score_sentiment_llm()` so opening the
+  Sentiment Lab tab repeatedly no longer re-fires Reddit/Exa network calls
+  or LLM scoring on every rerun. Extracted the word-frequency tokenization
+  logic out of `word_cloud_html()` into a pure `tokenize_for_wordcloud()`
+  helper (no DB/network) so it can be unit tested directly; removed an
+  unused `import re` found in the same pass.
+
+### Added
+- `tests/test_predictor_math.py`: unit tests for `american_to_prob()`, `devig()`,
+  and `predict_game()`'s cover-probability + quarter-Kelly formulas.
+- `tests/test_form_df.py`: unit tests for `views/game_detail.py`'s `form_df()`
+  column mapping and sign/dash formatting (mocks `analytics.last_n`).
+- `tests/test_sentiment_wordcloud.py`: unit tests for `sentiment.tokenize_for_wordcloud()`
+  (stopword/short/numeric filtering, frequency counts).
+  All three run both standalone (`python3 tests/test_*.py`, plain asserts)
+  and under `pytest`; wired into `.github/workflows/grading-ci.yml` so they
+  run on every PR. Verified green against the live `nfl-edge-v2-admin`
+  container.
+
 ## 2026-10-25
 
 ### Fixed

@@ -12,9 +12,11 @@ import random
 import time
 import uuid
 from datetime import datetime, timedelta
-import re
+import string
+from collections import Counter
 
 import requests
+import streamlit as st
 
 import data as dl
 # import db (replaced with sqlite3)
@@ -95,6 +97,7 @@ def collect_news_snippets(team_abbr, days_back=7):
             snippets.append(text[:500])
     return snippets
 
+@st.cache_data(ttl=600)
 def collect_exa_snippets(team_abbr, query_suffix='week 4 news', limit=5):
     """Use Exa's REST search API to find recent articles and return highlight snippets."""
     if not EXA_AVAILABLE:
@@ -117,6 +120,7 @@ def collect_exa_snippets(team_abbr, query_suffix='week 4 news', limit=5):
         print(f'Exa search error for {team_abbr}: {e}')
         return []
 
+@st.cache_data(ttl=600)
 def collect_reddit_snippets(team_abbr, limit=10):
     """Fetch recent hot posts from the team subreddit via Reddit's public JSON API."""
     subreddit = TEAM_TO_SUBREDDIT.get(team_abbr)
@@ -158,6 +162,7 @@ def collect_all_snippets(team_abbr, season, week):
 
 # ---------- LLM scoring ----------
 
+@st.cache_data(ttl=600)
 def score_sentiment_llm(snippets):
     """Send snippets to LLM, return dict with confidence, morale, controversy."""
     if not snippets:
@@ -319,6 +324,32 @@ def store_snippets(team, season, week, source, snippets):
         """, (team, season, week, source, snippet_text))
 
 
+_WORDCLOUD_STOPWORDS = {
+    'the', 'and', 'for', 'are', 'with', 'this', 'that', 'was',
+    'were', 'have', 'has', 'had', 'but', 'not', 'you', 'your',
+    'they', 'their', 'them', 'from', 'about', 'will', 'would',
+    'should', 'could', 'when', 'where', 'which', 'who', 'whom',
+    'what', 'how', 'why', 'then', 'than', 'also', 'just', 'like',
+    'more', 'most', 'some', 'such', 'only', 'out', 'into', 'over',
+    'under', 'after', 'before', 'during', 'while', 'because',
+    'since', 'until', 'through', 'again', 'further', 'too', 'very',
+}
+
+
+def tokenize_for_wordcloud(text):
+    """Lowercase, strip punctuation, drop stopwords/short/numeric tokens.
+
+    Pure function (no DB/network) so the word-frequency logic can be
+    unit tested in isolation from word_cloud_html's snippet fetching.
+    """
+    text_lower = text.lower()
+    translator = str.maketrans(string.punctuation, ' ' * len(string.punctuation))
+    cleaned = text_lower.translate(translator)
+    words = cleaned.split()
+    words = [w for w in words if w.isalpha() and len(w) >= 3]
+    return [w for w in words if w not in _WORDCLOUD_STOPWORDS]
+
+
 def word_cloud_html(team, season, week, source='combined'):
     """Build an inline HTML tag cloud for the team's sentiment snippets.
 
@@ -348,39 +379,11 @@ def word_cloud_html(team, season, week, source='combined'):
     
     if not snippet_text.strip():
         return None
-    
-    # Extract top words (simple tokenization)
-    import re
-    from collections import Counter
-    import string
-    
-    # Clean and tokenize: remove punctuation, split on whitespace
-    # Convert to lowercase first
-    text_lower = snippet_text.lower()
-    # Remove punctuation manually (keep letters and spaces)
-    # Replace punctuation with space to avoid glued words
-    translator = str.maketrans(string.punctuation, ' ' * len(string.punctuation))
-    cleaned = text_lower.translate(translator)
-    # Split on whitespace
-    words = cleaned.split()
-    # Keep only words with at least 3 letters (no numbers)
-    words = [w for w in words if w.isalpha() and len(w) >= 3]
-    
-    # Remove common stopwords
-    stopwords = {'the', 'and', 'for', 'are', 'with', 'this', 'that', 'was', 
-                 'were', 'have', 'has', 'had', 'but', 'not', 'you', 'your',
-                 'they', 'their', 'them', 'from', 'about', 'will', 'would',
-                 'should', 'could', 'when', 'where', 'which', 'who', 'whom',
-                 'what', 'how', 'why', 'then', 'than', 'also', 'just', 'like',
-                 'more', 'most', 'some', 'such', 'only', 'out', 'into', 'over',
-                 'under', 'after', 'before', 'during', 'while', 'because',
-                 'since', 'until', 'through', 'again', 'further', 'too', 'very'}
-    
-    filtered_words = [w for w in words if w not in stopwords]
-    
+
+    filtered_words = tokenize_for_wordcloud(snippet_text)
     if not filtered_words:
         return None
-    
+
     # Count frequencies
     word_counts = Counter(filtered_words)
     top_words = word_counts.most_common(30)  # Get top 30
