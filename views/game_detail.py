@@ -40,23 +40,12 @@ def form_df(ctx, team):
     if not rows:
         return None
     out = pd.DataFrame([{
-        "Date": r["date"], "Game": f"{r["loc"]} {r["opp"]}", "Score": r["score"],
-        "W/L": r["result"], "Line": f"{r["line"]:+.1f}" if pd.notna(r["line"]) else "-",
-        "ATS": r["ats"], "Total": f"{r["total_line"]:.1f}" if pd.notna(r["total_line"]) else "-",
+        "Date": r["date"], "Game": f'{r["loc"]} {r["opp"]}', "Score": r["score"],
+        "W/L": r["result"], "Line": f'{r["line"]:+.1f}' if pd.notna(r["line"]) else "-",
+        "ATS": r["ats"], "Total": f'{r["total_line"]:.1f}' if pd.notna(r["total_line"]) else "-",
         "O/U": r["ou"],
     } for r in rows])
     return out
-
-BOOK_NAMES = {"draftkings": "DraftKings", "fanduel": "FanDuel", "betmgm": "BetMGM",
-              "caesars": "Caesars", "bovada": "Bovada", "mybookieag": "MyBookie",
-              "betonlineag": "BetOnline", "williamhill_us": "Caesars", "espnbet": "ESPN BET",
-              "betrivers": "BetRivers", "fanatics": "Fanatics", "hardrockbet": "Hard Rock"}
-
-
-def _book_name(key):
-    if not key:
-        return "—"
-
 
 def fmt_ml(v):
     return f"{v:+d}" if isinstance(v, (int, float)) else "-"
@@ -66,7 +55,7 @@ def fmt_ml(v):
 
 def _line_history(game_label):
     """Line-movement history per game (Turso roundtrip — cache 10 min so open
-    ctx.games don't each pay a network call on every rerun)."""
+    tabs don't each pay a network call on every rerun)."""
     return db.line_history(game_label)
 
 
@@ -108,7 +97,7 @@ def predictor_tab(ctx, g, away, home):
         wind_mph, _ = wx.wind_for_game(g)
     pred = pr.predict_game(g, ctx.elo, ctx.books_by_abbr.get(key), ctx.espn_odds.get(key), ctx.injuries,
                            wind_mph=wind_mph)
-    if pred["mode"] == "ctx.elo-only":
+    if pred["mode"] == "elo-only":
         st.info("No market lines posted yet — showing Elo-only estimate (edges compute once books post).")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -142,7 +131,6 @@ def predictor_tab(ctx, g, away, home):
             ev = pred.get(f"ev_{side}")
             if ev is not None:
                 k = pred[f"kelly_{side}"]
-                print(f"DEBUG UI kelly_{side}: k={k}, br={br}")
                 ktxt = (f"{k*100:.1f}% of bankroll" + (f" (${k*br:.0f})" if br else "")) if k > 0 else "no bet"
                 rows.append({"Logo": logo_url(team), "Side": team, "EV @-110": f"{ev*100:+.1f}%",
                              "¼ Kelly stake": ktxt})
@@ -150,7 +138,6 @@ def predictor_tab(ctx, g, away, home):
             ev = pred.get(f"ev_{side}")
             if ev is not None:
                 k = pred[f"kelly_{side}"]
-                print(f"DEBUG UI kelly_{side}: k={k}, br={br}")
                 ktxt = (f"{k*100:.1f}% of bankroll" + (f" (${k*br:.0f})" if br else "")) if k > 0 else "no bet"
                 rows.append({"Logo": None, "Side": side.upper(), "EV @-110": f"{ev*100:+.1f}%",
                              "¼ Kelly stake": ktxt})
@@ -159,7 +146,7 @@ def predictor_tab(ctx, g, away, home):
             st.markdown("**Total adjustments:** " + " • ".join(
                 f"{n} {v:+.1f}" for n, v in pred["total_adjustments"]))
     else:
-        c2.metric("Elo win prob", f"{home} {pred['p_ctx.elo']*100:.0f}%")
+        c2.metric("Elo win prob", f"{home} {pred['p_elo']*100:.0f}%")
     if pred["adjustments"]:
         st.markdown("**Adjustments applied:** " + " • ".join(
             f"{a['module']} {logo_img(a['team'], 16)}{a['team']} {a['pts']:+.1f}"
@@ -170,22 +157,6 @@ def predictor_tab(ctx, g, away, home):
                "EV assumes -110; Kelly shown at ¼ fraction. Historical ≠ future — size accordingly.")
 
 # ---------------- props UI ----------------
-PROJ_COLS = [("proj_pass", "Pass Yds"), ("proj_rush", "Rush Yds"),
-             ("proj_rec_yds", "Rec Yds"), ("proj_rec", "Receptions"),
-             ("proj_pass_td", "Pass TD"), ("proj_rush_td", "Rush TD"), ("proj_rec_td", "Rec TD")]
-
-BOOK_NAMES = {"draftkings": "DraftKings", "fanduel": "FanDuel", "betmgm": "BetMGM",
-              "caesars": "Caesars", "bovada": "Bovada", "mybookieag": "MyBookie",
-              "betonlineag": "BetOnline", "williamhill_us": "Caesars", "espnbet": "ESPN BET",
-              "betrivers": "BetRivers", "fanatics": "Fanatics", "hardrockbet": "Hard Rock"}
-
-
-def _book_name(key):
-    if not key:
-        return "—"
-    return BOOK_NAMES.get(key, key.replace("_", " ").title())
-
-
 
 def props_tab(ctx, g, away, home):
     if ctx.player_stats is None:
@@ -278,7 +249,7 @@ def props_tab(ctx, g, away, home):
                        "— prop lines auto-load Mon & Sat, cached between runs "
                        "(spreads/totals stay live).")
         st.caption("🟢 = edge ≥8% (line = median across books) · **Best Book** = best price for the lean · "
-                   "**L5** = his over/under record vs that line in his last 5 ctx.games · "
+                   "**L5** = his over/under record vs that line in his last 5 games · "
                    "⚡ = v2 rushing model (backtest-validated: 61% lean hit 2023-25, see docs/BACKTESTS.md).")
         if ctx.api_key and st.button("↻ Refresh prop lines", key=f"refreshprops_{away}_{home}",
                                  help="Fetch fresh lines for THIS game now (~4 API credits — "
@@ -380,7 +351,7 @@ def sgp_tab(ctx, g, away, home):
             "No-boost price": f"{c['naive_american']:+d}",
         })
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    st.caption("**How to use:** Fair price includes the measured combo boost (2024-25, n=544 real ctx.games). "
+    st.caption("**How to use:** Fair price includes the measured combo boost (2024-25, n=544 real games). "
                "Only bet the SGP if your book's price is *longer* than Fair — books adjust for "
                "correlation too, so compare before betting. Boost ≠ guaranteed edge.")
 
@@ -480,7 +451,7 @@ def injuries_block(ctx, away, home):
         if ctx.injuries_err and nv_status != "ok":
             st.warning("Injury feeds temporarily unavailable — hit 🔄 Refresh in a few minutes.")
         else:
-            st.info("No ctx.injuries listed (official report publishes Wednesday of game ctx.week).")
+            st.info("No injuries listed (official report publishes Wednesday of game week).")
 
 
 
@@ -515,7 +486,7 @@ def slip_tab(ctx, g, away, home):
                  help=("Already on your slip — that exact leg is there. Add a different leg or game."
                        if dupe else "Add this leg to your bet slip")):
         slip.append({"game": label, "bet_type": bt, "selection": sel,
-                     "ctx.season": int(g["ctx.season"]), "ctx.week": int(g["ctx.week"]),
+                     "season": int(g["season"]), "week": int(g["week"]),
                      "line": None if bt == "ml" else float(line), "odds": int(odds)})
         st.session_state["slip_flash"] = len(slip)
         st.rerun()
@@ -525,19 +496,19 @@ def slip_tab(ctx, g, away, home):
 
 
 def sentiment_tab(ctx, g, away, home):
-    """Sentiment Lab: show sentiment scores, composite diff, pick, and word cloud links."""
+    """Sentiment Lab: show sentiment scores, composite diff, pick, and inline word clouds."""
     st.subheader("🧠 Sentiment Lab")
     st.caption(f"Sentiment analysis for {away} @ {home}")
     
     # Try to import sentiment module
     try:
         import sentiment as stm
-        ctx.season = int(g['ctx.season'])
-        ctx.week = int(g['ctx.week'])
+        season = int(g['season'])
+        week = int(g['week'])
         
         # Get sentiment scores
-        away_score = stm.get_sentiment_score(away, ctx.season, ctx.week, 'combined')
-        home_score = stm.get_sentiment_score(home, ctx.season, ctx.week, 'combined')
+        away_score = stm.get_sentiment_score(away, season, week, 'combined')
+        home_score = stm.get_sentiment_score(home, season, week, 'combined')
         
         if away_score and home_score:
             away_comp = away_score.get('composite', 0)
@@ -573,16 +544,15 @@ def sentiment_tab(ctx, g, away, home):
             st.divider()
             st.subheader("Word Clouds")
             
-            # Get word cloud URLs
-            away_url = stm.get_wordcloud_url(away, ctx.season, ctx.week, 'combined')
-            home_url = stm.get_wordcloud_url(home, ctx.season, ctx.week, 'combined')
-            
+            # Build inline word clouds (no external image service)
+            away_html = stm.word_cloud_html(away, season, week, 'combined')
+            home_html = stm.word_cloud_html(home, season, week, 'combined')
+
             col_a, col_h = st.columns(2)
             with col_a:
                 st.write(f"**{away} Sentiment Words**")
-                if away_url:
-                    st.markdown(f'<a href="{away_url}" target="_blank"><button style="background-color:#7cffb2;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">View {away} Word Cloud</button></a>', unsafe_allow_html=True)
-                    st.caption("Click to open word cloud in new tab")
+                if away_html:
+                    st.markdown(away_html, unsafe_allow_html=True)
                 else:
                     st.info(f"No news snippets available for {away}")
                     if st.button(f"Collect {away} News", key=f"collect_{away}"):
@@ -591,12 +561,11 @@ def sentiment_tab(ctx, g, away, home):
                             st.success(f"Collected {len(snippets)} snippets")
                         else:
                             st.warning("No snippets found")
-            
+
             with col_h:
                 st.write(f"**{home} Sentiment Words**")
-                if home_url:
-                    st.markdown(f'<a href="{home_url}" target="_blank"><button style="background-color:#7cffb2;border:none;padding:8px 16px;border-radius:4px;cursor:pointer">View {home} Word Cloud</button></a>', unsafe_allow_html=True)
-                    st.caption("Click to open word cloud in new tab")
+                if home_html:
+                    st.markdown(home_html, unsafe_allow_html=True)
                 else:
                     st.info(f"No news snippets available for {home}")
                     if st.button(f"Collect {home} News", key=f"collect_{home}"):
@@ -620,7 +589,7 @@ def sentiment_tab(ctx, g, away, home):
 
 def handle_tab(ctx, g, away, home):
     """Handle tab: public betting percentages (Action Network) and derived money flow."""
-    st.subheader("💰 HANDLE")
+    st.subheader("💰 Handle")
     st.caption(f"Public betting splits for {away} @ {home}")
     
     import data as dl
@@ -633,7 +602,7 @@ def handle_tab(ctx, g, away, home):
     key = (away, home)
     if key not in an_data:
         st.warning("Handle data not available for this matchup.")
-        st.info("Action Network provides public bet percentages for all ctx.games, but money percentages are limited to two ctx.games per ctx.week (free tier).")
+        st.info("Action Network provides public bet percentages for all games, but money percentages are limited to two games per week (free tier).")
         # Optional: compute derived money flow from line movement / vig skew
         return
     
@@ -664,7 +633,7 @@ def handle_tab(ctx, g, away, home):
             st.metric("Diff", "N/A")
     
     if money_away is None or money_home is None:
-        st.info("💰 Money percentages are locked for this game. Action Network's free tier only unlocks the first two ctx.games each ctx.week.")
+        st.info("💰 Money percentages are locked for this game. Action Network's free tier only unlocks the first two games each week.")
     
     # Add derived money flow from line movement (future enhancement)
     st.caption("Sharp side detection: money‑bet diff >0 indicates sharp money on that side.")
@@ -749,7 +718,7 @@ def render_game(ctx, gi, g):
         for i, (tag, detail, lean) in enumerate(spots):
             cols[i % len(cols)].warning(f"**{tag}**{' → ' + lean if lean else ''}\\n\\n{detail}")
 
-    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (last 3)", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip", "🧠 Sentiment Lab", "💰 HANDLE"])
+    tabs = st.tabs(["🎯 Predictor", "🎰 Props", "🧩 SGP", "📊 Lines", "📈 Form (last 3)", "⚔️ H2H (5y)", "🏥 Injuries", "🎟️ Slip", "🧠 Sentiment Lab", "💰 Handle"])
     with tabs[0]:
         predictor_tab(ctx, g, away, home)
     with tabs[1]:
@@ -772,7 +741,7 @@ def render_game(ctx, gi, g):
             if df_team is not None:
                 col.dataframe(df_team, hide_index=True, width="stretch")
             else:
-                col.info("No recent ctx.games found.")
+                col.info("No recent games found.")
     with tabs[5]:
         rows, summ = an.h2h(ctx.games, away, home, seasons=5)
         if rows:
@@ -784,7 +753,7 @@ def render_game(ctx, gi, g):
                 (f"-{summ['push']}P" if summ["push"] else ""), unsafe_allow_html=True)
             st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
         else:
-            st.info("No meetings in the last 5 ctx.seasons.")
+            st.info("No meetings in the last 5 seasons.")
     with tabs[6]:
         injuries_block(ctx, away, home)
     with tabs[7]:

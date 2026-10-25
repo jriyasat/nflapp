@@ -17,6 +17,7 @@ class AppContext:
     espn_odds: dict
     books_by_abbr: dict
     injuries: dict
+    injuries_err: Optional[str]
     api_key: str
     props_api_key: str
     player_stats: Optional[Any]

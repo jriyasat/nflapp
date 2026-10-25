@@ -110,7 +110,6 @@ def _kickoff_passed(g):
     except Exception:
         return False
 
+@st.cache_data(ttl=300)
 def get_user_settings(username):
     return db.get_user(username)
-
-@st.cache_data(ttl=3600)

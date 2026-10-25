@@ -5,13 +5,14 @@ Collects news, Reddit posts, and web search snippets for each team,
 scores via LLM (confidence, morale, controversy), stores in Turso.
 """
 
+import html
 import os
 import json
+import random
 import time
 import uuid
 from datetime import datetime, timedelta
 import re
-import subprocess
 
 import requests
 
@@ -26,6 +27,12 @@ OPENROUTER_AVAILABLE = bool(OPENROUTER_API_KEY)
 
 OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 OPENROUTER_MODEL = 'deepseek/deepseek-v3.2'
+
+EXA_API_KEY = os.environ.get("EXA_API_KEY")
+EXA_AVAILABLE = bool(EXA_API_KEY)
+EXA_URL = 'https://api.exa.ai/search'
+
+REDDIT_HEADERS = {'User-Agent': 'nfl-edge-sentiment/1.0'}
 
 # team name mapping for searches
 TEAM_TO_FULL = {
@@ -89,63 +96,57 @@ def collect_news_snippets(team_abbr, days_back=7):
     return snippets
 
 def collect_exa_snippets(team_abbr, query_suffix='week 4 news', limit=5):
-    """Use Exa AI search via mcporter to find recent articles."""
+    """Use Exa's REST search API to find recent articles and return highlight snippets."""
+    if not EXA_AVAILABLE:
+        return []
     full_name = TEAM_TO_FULL.get(team_abbr, team_abbr)
     query = f'{full_name} {query_suffix}'
-    cmd = f"mcporter call 'exa.web_search_exa(query: \"{query}\", numResults: {limit})'"
+    headers = {'x-api-key': EXA_API_KEY, 'Content-Type': 'application/json'}
+    payload = {'query': query, 'numResults': limit, 'contents': {'highlights': {'numSentences': 2}}}
     try:
-        output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL)
-        # parse output (simple line-based)
-        lines = output.split('\n')
+        resp = requests.post(EXA_URL, headers=headers, json=payload, timeout=15)
+        resp.raise_for_status()
+        results = resp.json().get('results', [])
         snippets = []
-        for line in lines:
-            if line.startswith('Highlights:'):
-                # the Highlights line contains the snippet
-                snippet = line.replace('Highlights:', '').strip()
-                if snippet:
-                    snippets.append(snippet[:500])
+        for r in results:
+            for h in (r.get('highlights') or []):
+                if h:
+                    snippets.append(h[:500])
         return snippets
     except Exception as e:
         print(f'Exa search error for {team_abbr}: {e}')
         return []
 
 def collect_reddit_snippets(team_abbr, limit=10):
-    """Fetch recent posts from team subreddit via OpenCLI."""
+    """Fetch recent hot posts from the team subreddit via Reddit's public JSON API."""
     subreddit = TEAM_TO_SUBREDDIT.get(team_abbr)
     if not subreddit:
         return []
-    # use OpenCLI profile from env
-    profile = os.environ.get('OPENCLI_PROFILE', '2s5wdubd')
-    cmd = f'OPENCLI_PROFILE={profile} opencli reddit search "subreddit:{subreddit}" -f yaml --limit {limit}'
+    url = f'https://www.reddit.com/r/{subreddit}/hot.json?limit={limit}'
     try:
-        output = subprocess.check_output(cmd, shell=True, text=True, timeout=30, stderr=subprocess.DEVNULL)
-        import yaml
-        posts = yaml.safe_load(output)
-        if not isinstance(posts, list):
-            return []
+        resp = requests.get(url, headers=REDDIT_HEADERS, timeout=10)
+        resp.raise_for_status()
+        posts = resp.json().get('data', {}).get('children', [])
         snippets = []
         for post in posts:
-            title = post.get('title', '')
-            selftext = post.get('selftext', '')
+            d = post.get('data', {})
+            title = d.get('title', '')
+            selftext = d.get('selftext', '')
             if selftext:
                 snippets.append(f'{title}: {selftext}'[:500])
             elif title:
                 snippets.append(title[:500])
         return snippets
-    except subprocess.TimeoutExpired:
-        print(f'Reddit timeout for {team_abbr}')
-        return []
     except Exception as e:
         print(f'Reddit error for {team_abbr}: {e}')
         return []
 
 def collect_all_snippets(team_abbr, season, week):
-    """Aggregate snippets from all sources (news + Exa only)."""
+    """Aggregate snippets from all sources (news + Exa + Reddit)."""
     snippets = []
     snippets.extend(collect_news_snippets(team_abbr))
     snippets.extend(collect_exa_snippets(team_abbr, f'week {week} news'))
-    # Reddit disabled for speed
-    # snippets.extend(collect_reddit_snippets(team_abbr))
+    snippets.extend(collect_reddit_snippets(team_abbr))
     # deduplicate by simple hash
     seen = set()
     unique = []
@@ -318,9 +319,9 @@ def store_snippets(team, season, week, source, snippets):
         """, (team, season, week, source, snippet_text))
 
 
-def get_wordcloud_url(team, season, week, source='combined'):
-    """Return QuickChart.io URL for a word cloud of the team's sentiment snippets.
-    
+def word_cloud_html(team, season, week, source='combined'):
+    """Build an inline HTML tag cloud for the team's sentiment snippets.
+
     Returns None if no snippets available.
     """
     # First get snippets (they're stored in the DB)
@@ -382,56 +383,31 @@ def get_wordcloud_url(team, season, week, source='combined'):
     
     # Count frequencies
     word_counts = Counter(filtered_words)
-    top_words = word_counts.most_common(25)  # Get top 25
-    
-    # Build text param: repeat words by frequency
-    text_parts = []
+    top_words = word_counts.most_common(30)  # Get top 30
+    if not top_words:
+        return None
+
+    # Build inline HTML spans sized by frequency, colored by rank tier
+    max_count = top_words[0][1]
+    spans = []
     for word, count in top_words:
-        # Repeat word proportional to frequency (max 10 repeats)
-        repeats = min(count, 10)
-        text_parts.extend([word] * repeats)
-    
-    text_param = "+".join(text_parts)
-    
-    # Colors: team-specific or neutral (JSON arrays as required by QuickChart)
-    team_colors = {
-        'ATL': '[\"red\",\"black\"]', 'BAL': '[\"purple\",\"black\",\"gold\"]', 'BUF': '[\"blue\",\"red\",\"white\"]',
-        'CAR': '[\"black\",\"blue\"]', 'CHI': '[\"navy\",\"orange\"]', 'CIN': '[\"orange\",\"black\"]',
-        'CLE': '[\"brown\",\"orange\"]', 'DAL': '[\"navy\",\"silver\"]', 'DEN': '[\"orange\",\"navy\"]',
-        'DET': '[\"honolulublue\",\"silver\"]', 'GB': '[\"green\",\"gold\"]', 'HOU': '[\"navy\",\"red\"]',
-        'IND': '[\"royalblue\",\"white\"]', 'JAX': '[\"teal\",\"gold\",\"black\"]', 'KC': '[\"red\",\"gold\"]',
-        'LAC': '[\"powderblue\",\"gold\"]', 'LAR': '[\"royalblue\",\"gold\"]', 'LV': '[\"black\",\"silver\"]',
-        'MIA': '[\"aqua\",\"orange\"]', 'MIN': '[\"purple\",\"gold\"]', 'NE': '[\"navy\",\"red\",\"silver\"]',
-        'NO': '[\"black\",\"gold\"]', 'NYG': '[\"blue\",\"red\"]', 'NYJ': '[\"green\",\"white\"]',
-        'PHI': '[\"green\",\"silver\",\"black\"]', 'PIT': '[\"black\",\"gold\"]', 'SEA': '[\"navy\",\"green\"]',
-        'SF': '[\"red\",\"gold\"]', 'TB': '[\"pewter\",\"red\"]', 'TEN': '[\"navy\",\"columbiablue\",\"red\"]',
-        'WAS': '[\"burgundy\",\"gold\"]'
-    }
-    
-    colors = team_colors.get(team, '[\"navy\",\"forestgreen\",\"maroon\"]')
-    
-    # Build QuickChart URL (parameters per QuickChart documentation)
-    base_url = "https://quickchart.io/wordcloud"
-    params = {
-        'text': text_param,
-        'format': 'png',
-        'width': '800',
-        'height': '400',
-        'colors': colors,  # JSON array string
-        'backgroundColor': 'white',
-        'fontFamily': 'sans-serif',
-        'scale': 'sqrt',   # frequency scaling method: linear, sqrt, or log
-        'fontScale': '25', # size of largest font (roughly)
-        'maxNumWords': '50',
-        'rotation': '20',  # maximum angle of rotation for words (degrees)
-        'removeStopwords': 'true',
-        'cleanWords': 'true',
-        'language': 'en',
-    }
-    
-    import urllib.parse
-    query_string = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
-    return f"{base_url}?{query_string}"
+        size = 14 + round((count / max_count) * 34)  # 14px - 48px
+        if count >= max_count * 0.66:
+            color = '#7cffb2'
+        elif count >= max_count * 0.33:
+            color = '#58a6ff'
+        else:
+            color = '#c9d1d9'
+        weight = 600 if size > 30 else 400
+        spans.append(
+            f'<span style="font-size:{size}px;color:{color};margin:4px 8px;'
+            f'font-weight:{weight};display:inline-block">{html.escape(word)}</span>'
+        )
+    random.shuffle(spans)
+    return (
+        '<div style="line-height:1.8;text-align:center;padding:12px;'
+        'background:#0d1117;border-radius:8px">' + ''.join(spans) + '</div>'
+    )
 
 
 if __name__ == '__main__':
