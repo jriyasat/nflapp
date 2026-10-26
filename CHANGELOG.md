@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-25 (fix: Power Rankings legend toggle didn't stack)
+
+### Fixed
+- `views/rankings.py`: clicking a second team in the progression chart's
+  legend reset the first team's toggle instead of stacking with it.
+  Root cause: Altair's `selection_point(toggle=True)` serializes to the
+  JSON boolean `true`, which Vega-Lite treats as its *default* value —
+  "only toggle while shift is held" — not "always toggle." Passing the
+  Vega expression **string** `"true"` instead of the Python bool is
+  what actually forces always-toggle-on-plain-click. Verified empirically
+  with a real headless-Chromium (Playwright) click sequence against the
+  live SVG-rendered chart (`AppTest` can't exercise this — it never runs
+  client-side JS/Vega-Lite interactivity): clicking team A fades only A;
+  clicking team B fades B while A stays faded (stacked); re-clicking A
+  restores it while B stays faded — independent per-team toggling as
+  intended.
+
 ## 2026-10-25 (feature: Power Rankings season-progression chart)
 
 ### Added

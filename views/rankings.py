@@ -57,7 +57,7 @@ def rankings_page(ctx):
     if not hist.empty:
         st.subheader("📈 Season Progression")
         st.caption("Click a team in the legend to toggle it off/on — build up any subset to compare.")
-        sel = alt.selection_point(fields=["Team"], bind="legend", toggle=True, empty=False)
+        sel = alt.selection_point(fields=["Team"], bind="legend", toggle="true", empty=False)
         domain = sorted(TEAM_COLORS)
         chart = (alt.Chart(hist).mark_line(point=True)
                  .encode(x=alt.X("Week:O"), y=alt.Y("Rating:Q", scale=alt.Scale(zero=False)),
