@@ -71,12 +71,16 @@ class Elo:
                   & games["game_type"].isin(["REG", "POST"])]
         g = g.sort_values(["season", "game_type", "week", "gameday"])
         self.ratings = {}
-        hist, last_season = [], None
+        self.history = []  # [(season, week, {team: rating})] snapshot after each week
+        hist, last_season, last_week_key = [], None, None
         for _, r in g.iterrows():
             if last_season is not None and r["season"] != last_season:
                 self.ratings = {t: START + (e - START) * (1 - REGRESS)
                                 for t, e in self.ratings.items()}
-            last_season = r["season"]
+            week_key = (r["season"], r["week"])
+            if last_week_key is not None and week_key != last_week_key:
+                self.history.append((*last_week_key, dict(self.ratings)))
+            last_season, last_week_key = r["season"], week_key
             ra = self.ratings.get(r["away_team"], START)
             rh = self.ratings.get(r["home_team"], START)
             p_home = self._p(ra, rh)
@@ -89,6 +93,8 @@ class Elo:
             self.ratings[r["away_team"]] = ra - shift
             if r["season"] >= 2021 and pd.notna(r["spread_line"]):
                 hist.append((p_home, -r["spread_line"]))  # home-perspective spread
+        if last_week_key is not None:
+            self.history.append((*last_week_key, dict(self.ratings)))
         h = pd.DataFrame(hist, columns=["p", "spread"])
         h["logit"] = h["p"].clip(0.02, 0.98).apply(lambda p: math.log(p / (1 - p)))
         A = np.vstack([h["logit"], np.ones(len(h))]).T

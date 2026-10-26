@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-10-25 (feature: Power Rankings season-progression chart)
+
+### Added
+- `predictor.py`: `Elo.__init__` now records `self.history`, a list of
+  `(season, week, {team: rating})` snapshots taken at each week boundary
+  during its single existing pass over games — no extra Elo refits, just
+  bookkeeping added to the loop that was already running.
+- `views/rankings.py`: new "📈 Season Progression" chart below the
+  rankings table, rendered with `st.altair_chart` (ships with Streamlit,
+  no new dependency). Click a team in the legend to isolate its line
+  (shift-click to add more) via Altair's `selection_point(bind="legend")`
+  bound to an opacity encoding. Switched the page to reuse one cached
+  `shared.get_elo(ctx.games)` instance for both the current-standings
+  table and the new history chart instead of constructing a second
+  `pr.Elo` object.
+
 ## 2026-10-25 (hotfix: Bet Journal AttributeError)
 
 ### Fixed
