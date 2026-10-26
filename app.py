@@ -257,10 +257,6 @@ except Exception:
 
 ABBR_TO_NAME = {v: k for k, v in dl.TEAM_NAME_TO_ABBR.items()}
 
-@st.cache_data(ttl=300)
-def get_user_settings(username):
-    return db.get_user(username)
-
 # ---------------- sidebar ----------------
 st.sidebar.header("Controls")
 _badge = {"admin": "🛠️ admin", "paid": "⭐ pro"}.get(LEVEL, "free")

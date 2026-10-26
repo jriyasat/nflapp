@@ -7,6 +7,7 @@ import data as dl
 import predictor as pr
 import props_model as pm
 import pandas as pd
+import db
 
 # ---------- feature gates ----------
 _LEVEL_RANK = {"user": 0, "paid": 1, "admin": 2, "superadmin": 3}

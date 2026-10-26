@@ -158,6 +158,14 @@ def _ensure_user_cols(conn):
         # hash of model weights used when pick was logged; allows tuning attribution
         conn.execute("ALTER TABLE predictions ADD COLUMN config_hash TEXT")
 
+ALERT_TYPES = {"brief": "☀️ Morning Brief (8 AM)",
+               "radar": "🚨 Value Radar (line moves)",
+               "inactives": "🚫 Gameday Inactives",
+               "injury": "🏥 Injury Report Watch",
+               "propscan": "🎯 Prop Scan (Thursday)"}
+ALERT_CHANNELS = ("off", "telegram", "email", "both")
+
+
 def _default_alert_prefs(email_enabled, telegram_enabled):
     """Mirror pre-matrix behavior: brief + inactives on whichever channels were
     enabled; everything else opt-in (off)."""

@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-10-25 (hotfix: Bet Journal AttributeError)
+
+### Fixed
+- `views/journal.py`: crashed with `AttributeError: module 'db' has no
+  attribute 'get_user_settings'` — `get_user_settings` lives in `shared.py`,
+  not `db.py`. Fixed both call sites (`get_user_settings(ctx.USER)` and the
+  `.clear()` cache-bust call) to use the correct import.
+- `shared.py`: its own `get_user_settings()` called `db.get_user(username)`
+  but the module never imported `db` — a latent `NameError` masked until the
+  journal-page fix above actually exercised it. Added `import db`.
+- `db.py`: `get_alert_prefs()` / `set_alert_pref()` (and `views/settings.py`'s
+  alert-subscriptions UI) referenced `ALERT_TYPES` / `ALERT_CHANNELS`, which
+  had been dropped entirely during an earlier refactor — a pre-existing
+  `AttributeError` on the Settings page for every user. Restored both from
+  git history (`ALERT_TYPES` labels, `ALERT_CHANNELS` tuple).
+- `app.py`: removed a dead duplicate `get_user_settings()` (identical to
+  `shared.py`'s, never called) found while fixing the above.
+- All three are the same bug class as the earlier module-split breakage:
+  a name moved/renamed during the `app.py` → `views/` split but a caller
+  (or the function itself) wasn't updated. Verified via an `AppTest` sweep
+  of all 13 nav pages for both an admin-tier and a synthetic unregistered
+  user — zero exceptions (the Settings-page `me["email"]` crash seen with
+  the synthetic user is expected: real users are always provisioned with a
+  DB row at signup, so that path can't occur in production).
+
 ## 2026-10-25 (follow-up: suggestion fixes)
 
 ### Changed

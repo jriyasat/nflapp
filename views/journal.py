@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 import journal
 import db
-from shared import logo_url, LOGO_CFG
+from shared import logo_url, LOGO_CFG, get_user_settings
 
 def journal_page(ctx):
     st.header("📒 Bet Journal + CLV Tracker")
@@ -27,7 +27,7 @@ def journal_page(ctx):
     c[3].metric("Avg CLV", f"{s.get('avg_clv', 0):+.2f}" if s.get("n_clv") else "-")
     c[4].metric("Beat the close", f"{s.get('beat_close_pct', 0):.0f}% ({s.get('n_clv', 0)})"
                 if s.get("n_clv") else "-")
-    me_u = db.get_user_settings(ctx.USER) or {}
+    me_u = get_user_settings(ctx.USER) or {}
     if me_u.get("bankroll"):
         br, un = me_u["bankroll"], me_u.get("unit") or 1.0
         pnl = s.get("profit", 0) * un
@@ -42,7 +42,7 @@ def journal_page(ctx):
                                 help="Journal stakes are in units — this converts them to $.")
         if st.button("Save bankroll"):
             db.update_bankroll(ctx.USER, br_in, un_in)
-            db.get_user_settings.clear()
+            get_user_settings.clear()
             st.success("Bankroll saved ✅")
             st.rerun()
     st.caption("CLV: positive = you got a better number than the close. Beating the close "
