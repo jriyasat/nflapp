@@ -49,7 +49,8 @@ def rankings_page(ctx):
         sel = alt.selection_point(fields=["Team"], bind="legend")
         chart = (alt.Chart(hist).mark_line(point=True)
                  .encode(x=alt.X("Week:O"), y=alt.Y("Rating:Q", scale=alt.Scale(zero=False)),
-                         color="Team:N",
+                         color=alt.Color("Team:N", scale=alt.Scale(scheme="rainbow"),
+                                         legend=alt.Legend(symbolLimit=40, columns=2)),
                          opacity=alt.condition(sel, alt.value(1), alt.value(0.07)),
                          tooltip=["Team", "Week", "Rating"])
                  .add_params(sel)
