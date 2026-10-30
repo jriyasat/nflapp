@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-10-29 (fix: admin.py — Overseer sides metrics, config-save wipe, history parsing, debug leaks)
+
+### Fixed
+- `admin.py`: Tab1 "💾 Save Configuration" rebuilt `new_config` from only the
+  slider fields, silently dropping `superadmin_secret`/`market_weight`/any
+  other untouched key on every save. Now spreads `**config` first so only
+  the edited fields actually change.
+- `admin.py`: `append_history()` assumed `backtest_results` was always
+  `{market: {metric: value}}}`; `run_backtest()`'s actual shape is
+  `{"output": ..., "metrics": {market: {...}}}`, so every props-backtest
+  save was flattening the wrong (empty) dict into the CSV. Fixed with
+  `backtest_results.get("metrics", backtest_results)`.
+- `admin.py`: Tab4 Overseer reads `sides_win_pct`/`sides_roi`/`sides_clv`/
+  `sides_n_picks` columns from `tuning_history.csv`, but nothing ever wrote
+  them — the "✅ Apply Candidate Configuration" button called
+  `append_history(candidate_config, test_name=test_name)` with no backtest
+  results at all, so those columns were always empty and the Overseer's
+  "best observed configuration"/Top-5 tables had nothing to rank. Root
+  cause: a `run_sides_backtest()` function was referenced by two orphaned
+  root-level scripts (`tune_iteration.py`, `test_save.py`) but never
+  actually implemented in `admin.py`. Added `run_sides_backtest(config)`,
+  which runs `scripts/walk_forward_sides_no_ypp.py`'s `evaluate_config()`
+  against already-locally-cached data (`data/games.csv` +
+  `dl.cached_sgo_lines()` — the same source the existing "Compute Edge
+  Distribution" button already uses) — no live API calls — and returns
+  `{"sides": {"n_picks", "win_pct", "roi", "clv"}}`, which
+  `append_history()`'s existing flattening turns into exactly the
+  `sides_*` columns the Overseer expects. Wired into the "Apply Candidate
+  Configuration" button. Verified live against the real cached dataset
+  (`docker exec nfl-edge-v2-admin`): returns real, non-error metrics, and
+  flattens into the four expected `sides_*` CSV columns.
+- `admin.py`: removed `print(f"[DEBUG] Password check: ...")` /
+  `print(f"[DEBUG] Superadmin password check: ...")` (logged entered
+  password hashes to container stdout on every login attempt), a stray
+  `st.write(f"DEBUG: total_records={total_records}")` left in the Overseer
+  tab's UI, and the now-unused `import hashlib`.
+- Verified via `py_compile` and a live `nfl-edge-v2-admin` container check
+  (HTTP 200, `run_sides_backtest()` invoked directly against real cached
+  data with no errors) after each change — this container bind-mounts
+  source directly, so no rebuild was needed.
+
+### Not done this pass (deliberately deferred)
+- The "✅ Apply Candidate Configuration" button still never calls
+  `save_config()` — it only logs the candidate to tuning history, so
+  "applying" a config doesn't actually change what's live. Needs its own
+  pass.
+- The "🚀 Run Walk‑Forward Backtest (2021‑2025)" button is still an
+  unimplemented stub (`# TODO: implement`).
+
 ## 2026-10-25 (fix: Power Rankings legend toggle didn't stack)
 
 ### Fixed

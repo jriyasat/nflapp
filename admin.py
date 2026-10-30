@@ -9,7 +9,6 @@ import pandas as pd
 import numpy as np
 import datetime
 import csv
-import hashlib
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -88,7 +87,7 @@ def append_history(config_dict, backtest_results=None, test_name=""):
     
     # Add backtest results if provided
     if backtest_results and isinstance(backtest_results, dict):
-        for market, metrics in backtest_results.items():
+        for market, metrics in backtest_results.get("metrics", backtest_results).items():
             if isinstance(metrics, dict):
                 for metric, value in metrics.items():
                     record[f"{market}_{metric}"] = value
@@ -164,6 +163,54 @@ def run_backtest():
                         continue
         
         return {"output": output, "metrics": metrics}
+    except Exception as e:
+        return {"error": str(e)}
+
+def run_sides_backtest(config):
+    """Run sides walk-forward backtest against local cached data (games.csv +
+    cached SGO lines) — no live API calls. Mirrors the 'Compute Edge
+    Distribution' button's setup, reusing evaluate_config()'s win_pct/roi/clv."""
+    try:
+        import data as dl
+        import predictor as pr
+        from ypp_model import YPPModel
+        from scripts.walk_forward_sides_no_ypp import evaluate_config
+
+        games = dl.load_games()
+        ypp_model = YPPModel()
+        abbr_to_long = {abbr: long for long, abbr in dl.TEAM_NAME_TO_ABBR.items()}
+
+        def market_line_fn(game_row):
+            books = dl.cached_sgo_lines()
+            if books:
+                away_long = abbr_to_long.get(game_row['away_team'].upper())
+                home_long = abbr_to_long.get(game_row['home_team'].upper())
+                if away_long and home_long:
+                    key = (away_long, home_long)
+                    if key in books:
+                        market = pr.consensus(books[key])
+                        return market.get('home_spread'), 'books'
+            if pd.notna(game_row.get('spread_line')):
+                return -float(game_row['spread_line']), 'nflverse'
+            return None, 'none'
+
+        market_weight = config.get('market_weight', 0.85)
+        nonmarket_weight = 1.0 - market_weight
+        ypp_weight = config.get('ypp_weight', 0.85)
+        elo_weight = config.get('elo_weight', 0.15)
+        total = ypp_weight + elo_weight
+        if total > 0:
+            ypp_weight /= total
+            elo_weight /= total
+
+        result = evaluate_config(games, ypp_model, market_line_fn, market_weight, nonmarket_weight,
+                                 ypp_weight, elo_weight, threshold=2.0)
+        return {"sides": {
+            "n_picks": result.get("n_picks", 0),
+            "win_pct": result.get("win_pct", 0.0),
+            "roi": result.get("roi", 0.0),
+            "clv": result.get("clv", 0.0),
+        }}
     except Exception as e:
         return {"error": str(e)}
 
@@ -540,13 +587,6 @@ with tab1:
     admin_secret = config.get("admin_secret", "SET_A_SECRET")
     superadmin_secret = config.get("superadmin_secret", "SET_A_SUPER_SECRET")
     entered = st.text_input("Admin password", type="password")
-    if entered:
-        entered_hash = hashlib.sha256(entered.encode()).hexdigest()[:8]
-        admin_hash = hashlib.sha256(admin_secret.encode()).hexdigest()[:8]
-        super_hash = hashlib.sha256(superadmin_secret.encode()).hexdigest()[:8]
-        admin_match = entered.strip() == admin_secret.strip()
-        super_match = entered.strip() == superadmin_secret.strip()
-        print(f"[DEBUG] Password check: entered_hash={entered_hash}, admin_hash={admin_hash}, super_hash={super_hash}, admin_match={admin_match}, super_match={super_match}")
     if entered.strip() == admin_secret.strip() or entered.strip() == superadmin_secret.strip():
         st.success("✅ Access granted")
         
@@ -558,7 +598,6 @@ with tab1:
             available_cols = [c for c in display_cols if c in history_df.columns]
             if available_cols:
                 total_records = len(history_df)
-                st.write(f"DEBUG: total_records={total_records}")
                 if total_records >= 3:
                     # Slider to choose how many recent records to display
                     show_count = st.slider(
@@ -756,6 +795,7 @@ with tab1:
         
         if st.button("💾 Save Configuration", type="primary"):
             new_config = {
+                **config,
                 "snap_share_weight": snap_share_weight,
                 "target_share_weight": target_share_weight,
                 "ryoe_multiplier": ryoe_multiplier,
@@ -872,10 +912,6 @@ with tab3:
     config = load_config()
     superadmin_secret = config.get("superadmin_secret", "SET_A_SUPER_SECRET")
     entered = st.text_input("Superadmin password", type="password")
-    if entered:
-        entered_hash = hashlib.sha256(entered.encode()).hexdigest()[:8]
-        expected_hash = hashlib.sha256(superadmin_secret.encode()).hexdigest()[:8]
-        print(f"[DEBUG] Superadmin password check: entered_hash={entered_hash}, expected_hash={expected_hash}, match={entered.strip() == superadmin_secret.strip()}")
     if entered.strip() == superadmin_secret.strip():
         st.success("✅ Super‑admin access granted")
         
@@ -1052,8 +1088,12 @@ with tab3:
                 "ypp_weight": candidate_ypp_weight,
                 "elo_weight": candidate_elo_weight,
             }
-            # Append to history with test name
-            history_df = append_history(candidate_config, test_name=test_name)
+            # Run sides backtest (local cached data, no live API calls) and append to history
+            with st.spinner("Running sides backtest on cached data..."):
+                sides_result = run_sides_backtest({**config, **candidate_config})
+                if "error" in sides_result:
+                    st.warning(f"Sides backtest failed: {sides_result['error']}")
+                history_df = append_history(candidate_config, sides_result, test_name=test_name)
             st.success(f"✅ Configuration '{test_name}' saved to history")
         
         if st.button("🚀 Run Walk‑Forward Backtest (2021‑2025)", type="primary"):
