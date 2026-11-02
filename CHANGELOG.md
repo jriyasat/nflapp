@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-11-01 (dev: relay v1's live SGO/injury/roster data into v2 containers)
+
+### Context
+v2's own SGO odds pipeline is dead (monitor daemon down, feed 403ing since
+Sep 27) and its YPP/snap/team-stat caches are stale, while v1
+(`/Users/jeff/nfl-edge`) is confirmed to be fetching and refreshing this data
+live. Rather than stand up a duplicate SGO fetcher (and burn a second
+API-tier's worth of quota) while v2 is still in dev, the three v2 containers
+now read v1's live files directly via read-only bind mounts — no network
+calls of their own for this data. This is a dev-only bridge; v2 will run its
+own equivalent pipeline in prod.
+
+### Changed
+- `nfl-edge-v2`, `nfl-edge-v2-ypp`, `nfl-edge-v2-admin` containers recreated
+  with 5 new read-only mounts from v1's `data/`: `sgo_odds.json`,
+  `sleeper_players.json`, `nflverse_injuries_2026.csv`, `player_stats_2025.csv`,
+  `player_stats_2026.csv`. All other config (env, ports, restart policy,
+  existing mounts/secrets) preserved exactly.
+- `data.py`: `SGO_CACHE_MIN` (the 120-min disk-freshness gate in
+  `_sgo_board_raw()`) is now overridable via `SGO_RELAY_CACHE_MIN` env var.
+  Root cause: the gate exists to throttle *v2's own* SGO fetches against its
+  paid-tier quota, but a relay container never fetches — it only reads a
+  file whose own refresh cadence (v1's, every few hours) doesn't reliably
+  land inside a 120-min window. Without the override, `cached_sgo_lines()`
+  silently returned `None` even with a same-day mounted file.
+  `nfl-edge-v2-admin` (the container lacking v1's `secrets.toml`, so it has
+  no working Turso shared-cache fallback either) now runs with
+  `SGO_RELAY_CACHE_MIN=720`. `nfl-edge-v2`/`nfl-edge-v2-ypp` already have
+  v1's `secrets.toml` mounted and get a cache hit via Turso directly, so
+  they didn't need the override, but all three were verified end-to-end
+  (`cached_sgo_lines()` returns 27 books on each).
+
 ## 2026-10-29 (fix: admin.py — Overseer sides metrics, config-save wipe, history parsing, debug leaks)
 
 ### Fixed

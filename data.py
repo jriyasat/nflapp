@@ -318,7 +318,11 @@ def odds_api_lines(api_key):
 
 SGO_EVENTS = "https://api.sportsgameodds.com/v2/events/"
 SGO_BOOKS = "draftkings,fanduel,betmgm,caesars,espnbet"  # verified on amateur tier (others 400)
-SGO_CACHE_MIN = 120  # free tier = 2,500 objects/mo (~156 weekly-slate fetches) — be stingy
+SGO_CACHE_MIN = int(os.environ.get("SGO_RELAY_CACHE_MIN", 120))  # free tier = 2,500 objects/mo (~156 weekly-slate fetches) — be stingy
+# SGO_RELAY_CACHE_MIN: dev-only override for containers that relay off another
+# instance's sgo_odds.json instead of fetching their own (never fetches here,
+# so the quota-driven 120min default doesn't apply — the file's own refresh
+# cadence is the real freshness floor).
 
 
 def sgo_api_key():
