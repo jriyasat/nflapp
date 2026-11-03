@@ -10,7 +10,6 @@ import os
 import json
 import random
 import time
-import uuid
 from datetime import datetime, timedelta
 import string
 from collections import Counter
@@ -19,9 +18,7 @@ import requests
 import streamlit as st
 
 import data as dl
-# import db (replaced with sqlite3)
-import sqlite3
-DB_PATH = '/app/data/nfl_edge.db'
+import db
 
 # ---------- configuration ----------
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
@@ -65,22 +62,6 @@ TEAM_TO_SUBREDDIT = {
     'PIT': 'steelers', 'SEA': 'Seahawks', 'SF': '49ers',
     'TB': 'buccaneers', 'TEN': 'Tennesseetitans', 'WAS': 'Commanders',
 }
-
-# ---------- table management ----------
-def ensure_sentiment_table():
-    """Create sentiment_scores table if it doesn't exist."""
-    with sqlite3.connect(DB_PATH) as c:
-        c.execute("""CREATE TABLE IF NOT EXISTS sentiment_scores (
-            id TEXT PRIMARY KEY,
-            team TEXT NOT NULL,
-            season INT,
-            week INT,
-            source TEXT,
-            confidence REAL,
-            morale REAL,
-            controversy REAL,
-            created_at TEXT
-        )""")
 
 # ---------- data collection ----------
 
@@ -212,61 +193,58 @@ Return ONLY a JSON object with keys "confidence", "morale", "controversy" (float
         return parsed
     except Exception as e:
         print(f'LLM scoring error: {e}')
-        # fallback neutral
-        return {'confidence': 0.0, 'morale': 0.0, 'controversy': 0.0}
+        # infra/API failure: return None so callers skip storing a fake score
+        # (distinct from the "no snippets" case above, which is genuinely neutral)
+        return None
 
-# ---------- storage ----------
+# ---------- storage (Turso shared_cache; falls back to local SQLite via db.py
+# if credentials are missing, same as team_ypp_history) ----------
+
+def _score_key(team, season, week, source):
+    return f"sentiment_score:{team}:{season}:{week}:{source}"
+
 
 def store_sentiment_score(team, season, week, source, scores):
-    """Insert or replace sentiment score in Turso."""
-    ensure_sentiment_table()
-    with sqlite3.connect(DB_PATH) as c:
-        id_val = str(uuid.uuid4())
-        created = datetime.now().isoformat()
-        c.execute("""INSERT OR REPLACE INTO sentiment_scores
-            (id, team, season, week, source, confidence, morale, controversy, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (id_val, team, season, week, source,
-             scores['confidence'], scores['morale'], scores['controversy'], created))
+    """Upsert sentiment score into the shared cache."""
+    db.cache_set(_score_key(team, season, week, source), json.dumps({
+        'confidence': scores['confidence'],
+        'morale': scores['morale'],
+        'controversy': scores['controversy'],
+    }))
+
 
 def get_sentiment_score(team, season, week, source='combined'):
     """Retrieve stored sentiment scores."""
-    ensure_sentiment_table()
-    with sqlite3.connect(DB_PATH) as c:
-        rows = c.execute("""
-            SELECT confidence, morale, controversy, created_at
-            FROM sentiment_scores
-            WHERE team = ? AND season = ? AND week = ? AND source = ?
-            ORDER BY created_at DESC LIMIT 1
-        """, (team, season, week, source)).fetchall()
-        if rows:
-            return {
-                'confidence': rows[0][0],
-                'morale': rows[0][1],
-                'controversy': rows[0][2],
-                'composite': rows[0][0] + rows[0][1] - rows[0][2],
-                'created_at': rows[0][3],
-            }
-    return None
+    payload, ts = db.cache_get(_score_key(team, season, week, source))
+    if not payload:
+        return None
+    s = json.loads(payload)
+    return {
+        'confidence': s['confidence'],
+        'morale': s['morale'],
+        'controversy': s['controversy'],
+        'composite': s['confidence'] + s['morale'] - s['controversy'],
+        'created_at': datetime.fromtimestamp(ts).isoformat() if ts else None,
+    }
+
+
 def compute_combined_score(team, season, week):
     """Compute weighted average across sources (simple average for now)."""
-    ensure_sentiment_table()
-    with sqlite3.connect(DB_PATH) as c:
-        rows = c.execute("""
-            SELECT confidence, morale, controversy
-            FROM sentiment_scores
-            WHERE team = ? AND season = ? AND week = ? AND source IN ('news', 'reddit', 'exa')
-        """, (team, season, week)).fetchall()
-        if not rows:
-            return None
-        conf = sum(r[0] for r in rows) / len(rows)
-        mor = sum(r[1] for r in rows) / len(rows)
-        cont = sum(r[2] for r in rows) / len(rows)
-        # store combined
-        store_sentiment_score(team, season, week, 'combined', {
-            'confidence': conf, 'morale': mor, 'controversy': cont
-        })
-        return {'confidence': conf, 'morale': mor, 'controversy': cont, 'composite': conf + mor - cont}
+    rows = []
+    for source in ('news', 'reddit', 'exa'):
+        s = get_sentiment_score(team, season, week, source)
+        if s:
+            rows.append(s)
+    if not rows:
+        return None
+    conf = sum(r['confidence'] for r in rows) / len(rows)
+    mor = sum(r['morale'] for r in rows) / len(rows)
+    cont = sum(r['controversy'] for r in rows) / len(rows)
+    # store combined
+    store_sentiment_score(team, season, week, 'combined', {
+        'confidence': conf, 'morale': mor, 'controversy': cont
+    })
+    return {'confidence': conf, 'morale': mor, 'controversy': cont, 'composite': conf + mor - cont}
 
 # ---------- main pipeline ----------
 
@@ -288,6 +266,9 @@ def ensure_sentiment_for_week(season, week, teams=None):
         print(f'  {len(snippets)} snippets')
         scores = score_sentiment_llm(snippets)
         print(f'  scores: {scores}')
+        if scores is None:
+            print(f'  LLM scoring failed, not storing')
+            continue
         # store per source (currently combined)
         store_sentiment_score(team, season, week, 'combined', scores)
         # Also store snippets for word clouds
@@ -296,32 +277,14 @@ def ensure_sentiment_for_week(season, week, teams=None):
     print('Sentiment collection complete')
 
 # ---------- word cloud generation ----------
-def ensure_snippets_table():
-    """Create sentiment_snippets table if it doesn't exist."""
-    with sqlite3.connect(DB_PATH) as c:
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS sentiment_snippets (
-                team TEXT NOT NULL,
-                season INT NOT NULL,
-                week INT NOT NULL,
-                source TEXT NOT NULL,
-                snippets TEXT,
-                created_at TEXT,
-                PRIMARY KEY (team, season, week, source)
-            )
-        """)
+def _snippet_key(team, season, week, source):
+    return f"sentiment_snippets:{team}:{season}:{week}:{source}"
 
 
 def store_snippets(team, season, week, source, snippets):
-    """Store snippets in a dedicated table for word cloud generation."""
-    ensure_snippets_table()
+    """Store snippets in the shared cache for word cloud generation."""
     snippet_text = " ".join(snippets)
-    with sqlite3.connect(DB_PATH) as c:
-        c.execute("""
-            INSERT OR REPLACE INTO sentiment_snippets 
-            (team, season, week, source, snippets, created_at)
-            VALUES (?, ?, ?, ?, ?, datetime('now'))
-        """, (team, season, week, source, snippet_text))
+    db.cache_set(_snippet_key(team, season, week, source), snippet_text)
 
 
 _WORDCLOUD_STOPWORDS = {
@@ -355,18 +318,11 @@ def word_cloud_html(team, season, week, source='combined'):
 
     Returns None if no snippets available.
     """
-    # First get snippets (they're stored in the DB)
-    ensure_snippets_table()
-    with sqlite3.connect(DB_PATH) as c:
-        rows = c.execute("""
-            SELECT snippets 
-            FROM sentiment_snippets 
-            WHERE team = ? AND season = ? AND week = ? AND source = ?
-            ORDER BY created_at DESC LIMIT 1
-        """, (team, season, week, source)).fetchall()
-    
-    # If snippets table doesn't exist or is empty, try to extract from news
-    if not rows:
+    # First get snippets (they're stored in the shared cache)
+    payload, _ = db.cache_get(_snippet_key(team, season, week, source))
+
+    # If no snippets cached yet, try to extract from news
+    if not payload:
         # Fallback: collect news snippets now
         snippets = collect_news_snippets(team)
         if not snippets:
@@ -375,7 +331,7 @@ def word_cloud_html(team, season, week, source='combined'):
         store_snippets(team, season, week, source, snippets)
         snippet_text = " ".join(snippets)
     else:
-        snippet_text = rows[0][0] or ""
+        snippet_text = payload or ""
     
     if not snippet_text.strip():
         return None

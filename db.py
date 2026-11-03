@@ -233,6 +233,12 @@ def cache_set(key, payload):
                   (key, payload, str(time.time())))
 
 
+def cache_delete(key):
+    """Remove a key from the shared cache."""
+    with _connect() as c:
+        c.execute("DELETE FROM shared_cache WHERE key=?", (key,))
+
+
 def cache_get_meta(key):
     """Just the updated_at epoch for a key (cheap — no payload transfer)."""
     try:

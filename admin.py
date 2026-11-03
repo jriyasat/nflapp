@@ -717,13 +717,13 @@ with tab1:
             sentiment_only_threshold = config.get("sentiment_only_threshold", 0.5)
 
         # Sentiment Scores Display
-        with st.expander("📊 Sentiment Scores (Week 4)", expanded=False):
+        import data as dl
+        _games_for_week = dl.load_games()
+        season, week = dl.current_season_week(_games_for_week)
+        with st.expander(f"📊 Sentiment Scores (Week {week})", expanded=False):
             import sentiment as stm
-            import data as dl
             import pandas as pd
-            season = 2026
-            week = 4
-            df = dl.load_games()
+            df = _games_for_week
             games = df[(df['season'] == season) & (df['week'] == week)]
             teams = set(games['away_team'].tolist() + games['home_team'].tolist())
             rows = []
@@ -742,7 +742,7 @@ with tab1:
                 st.caption(f'{len(rows)} teams scored')
             else:
                 st.info('No sentiment scores yet.')
-            if st.button('🔄 Refresh sentiment scores for Week 4'):
+            if st.button(f'🔄 Refresh sentiment scores for Week {week}'):
                 with st.spinner('Collecting sentiment for all teams...'):
                     import time
                     for team in sorted(teams):
@@ -752,19 +752,18 @@ with tab1:
                         snippets = stm.collect_all_snippets(team, season, week)
                         if snippets:
                             scores = stm.score_sentiment_llm(snippets)
-                            stm.store_sentiment_score(team, season, week, 'combined', scores)
+                            if scores is not None:
+                                stm.store_sentiment_score(team, season, week, 'combined', scores)
+                                stm.store_snippets(team, season, week, 'combined', snippets)
                             time.sleep(2)
                     st.success('Sentiment scores updated')
                     st.rerun()
         
         # Sentiment‑Only Picks Table
-        with st.expander("🎯 Sentiment‑Only Picks (Week 4)", expanded=False):
+        with st.expander(f"🎯 Sentiment‑Only Picks (Week {week})", expanded=False):
             import sentiment as stm
-            import data as dl
             import pandas as pd
-            season = 2026
-            week = 4
-            df = dl.load_games()
+            df = _games_for_week
             games = df[(df['season'] == season) & (df['week'] == week)]
             picks_rows = []
             for _, game in games.iterrows():

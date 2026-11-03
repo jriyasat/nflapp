@@ -1,5 +1,88 @@
 # Changelog
 
+## 2026-11-03 (fix: Sentiment Lab was dead — local-SQLite isolation, hardcoded Week 4, silent LLM-failure corruption)
+
+### Context
+Same shape of bug as the 2026-11-01 YPP issue: `sentiment.py` stored scores
+in local SQLite (`/app/data/nfl_edge.db`) instead of the shared Turso cache,
+and the only code that collects scores (a button in `admin.py`) ran in a
+different container (8505) than the one serving the Sentiment Lab tab
+(8503/8504) — so the tab always showed `—`. Separately, both the tab and the
+admin refresh button were hardcoded to `season=2026, week=4` rather than the
+actual current week. While re-running collection for the real current week
+(2026 Week 8), discovered `score_sentiment_llm()` was silently swallowing
+`OPENROUTER_API_KEY` auth failures (401) and returning fake neutral
+`{confidence:0, morale:0, controversy:0}` scores, which then got *stored* as
+if real — corrupting 21 of 28 teams' Week 8 data with zero scores that would
+have blocked all future re-collection (code treats "has a score" as "done,"
+regardless of validity). The OpenRouter key itself is still invalid/expired;
+real sentiment collection is blocked until it's replaced.
+
+### Changed
+- `sentiment.py`: migrated score + snippet storage from local SQLite
+  (`ensure_sentiment_table`/`ensure_snippets_table`, now deleted) to
+  `db.py`'s Turso-backed `cache_get`/`cache_set`, matching the
+  `team_ypp_history` pattern. New key scheme:
+  `sentiment_score:{team}:{season}:{week}:{source}`,
+  `sentiment_snippets:{team}:{season}:{week}:{source}`.
+- `views/sentiment_lab.py`: now reads via `sentiment.get_sentiment_score()`
+  instead of a direct (and container-local) SQLite query.
+- `views/sentiment_lab.py` and `admin.py` (score display, refresh button,
+  sentiment-only picks table): replaced hardcoded `season=2026, week=4` with
+  `data.current_season_week(games)` — the same helper already used by
+  `app.py` and every `scripts/*.py`.
+- `sentiment.py:score_sentiment_llm()`: on LLM/API failure now returns
+  `None` instead of a fake neutral score, so callers skip storing bad data.
+  `ensure_sentiment_for_week()` and `admin.py`'s refresh button both updated
+  to check for `None` before storing. Also fixed `admin.py`'s refresh button
+  to persist snippets (`stm.store_snippets`) so the Word Cloud feature has
+  data to read — it never had before, even on a successful run.
+- `db.py`: added `cache_delete(key)` (same pattern as `cache_set`), used to
+  purge the 21 corrupted zero-score entries created above.
+- The 33 real sentiment scores collected before this migration (under the
+  old local-SQLite schema, in `nfl-edge-v2-admin`'s container-local
+  `data/nfl_edge.db`) are orphaned — not migrated, since the new key scheme
+  is unrelated and re-collection is cheap. They're stranded in a container
+  filesystem that's itself disposable.
+- `nfl-edge-v2`/`nfl-edge-v2-ypp` recreated (same mounts/env, no changes to
+  what's mounted) after editing `sentiment.py` broke their single-file bind
+  mount — Docker Desktop's bind mounts can go stale when the host source
+  file is replaced via rename-on-save rather than edited in place; recreating
+  the container re-attaches the mount to the current file.
+
+## 2026-11-01 (fix: nfl-edge-v2-admin was isolated on a disconnected local SQLite fallback; YPP coefficients missing from v2/v2-ypp images)
+
+### Context
+`db.py`'s `_connect()` falls back to a local SQLite file
+(`data/nfl_edge.db`) whenever Turso credentials aren't found. Unlike
+`nfl-edge-v2`/`nfl-edge-v2-ypp` (which have v1's `secrets.toml` mounted),
+`nfl-edge-v2-admin` never had Turso credentials, so every `shared_cache`
+write it made (including a YPP data refresh run earlier today) landed in
+this disconnected local file instead of the real shared Turso instance used
+by the other two containers — invisible to them, and silently diverging.
+Separately, `ypp_coefficients.json` (the fitted YPP model — `alpha`/`beta`/etc.)
+was completely absent from the `nfl-edge-v2`/`nfl-edge-v2-ypp` images;
+`ypp_model.py`'s `YPPModel.__init__` has no guard around `open()`, so it
+raised `FileNotFoundError`, which `predictor.py:predict_game()` silently
+swallows (`except Exception: ypp_spread = elo_spread`) — meaning
+`nfl-edge-v2-ypp` (`USE_YPP=1`) has been running pure Elo this whole time
+with no visible error.
+
+### Changed
+- `nfl-edge-v2-admin` recreated with v1's `.streamlit/secrets.toml` mounted
+  read-only, giving it real Turso credentials for the first time. Verified
+  connected to the same shared instance as `nfl-edge-v2` (matching
+  `team_ypp_history` timestamp/row-count before refresh).
+- Re-ran `scripts/compute_ypp_from_stats_team.py --years 2020..2026` and
+  `scripts/fit_ypp_model_from_cache.py` inside the now-connected admin
+  container, pushing a fresh `team_ypp_history` (3602 rows, seasons
+  2020-2026) to the real shared Turso — previously stuck at 2718 rows /
+  2021-2025 / ~41 days stale. Refit coefficients (n_samples 1408 → 1801).
+- `nfl-edge-v2` and `nfl-edge-v2-ypp` recreated with a new read-only mount
+  of v2's own `data/model_fits/ypp_coefficients.json` (no v1 involvement —
+  pure v2-internal file). Verified `YPPModel()` now instantiates without
+  raising in `nfl-edge-v2-ypp`, so `USE_YPP=1` is live for the first time.
+
 ## 2026-11-01 (dev: relay v1's live SGO/injury/roster data into v2 containers)
 
 ### Context
