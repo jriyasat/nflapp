@@ -28,6 +28,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 #              -v $PWD/.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro ...
 COPY . .
 
+# data/ is dockerignored (see above) so it doesn't exist post-COPY; create it
+# here so it's appuser-owned before individual files get bind-mounted into it —
+# otherwise Docker auto-creates it as root at container-start and runtime
+# writes (e.g. data.py's games.csv cache) fail with EACCES.
+RUN mkdir -p data/model_fits
+
 # Run as non-root. Streamlit writes nothing outside /app at runtime.
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser

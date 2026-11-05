@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-11-04 (fix: /app/data not writable by appuser after image rebuild)
+
+### Context
+After the rebuild below, 8503 threw `PermissionError: [Errno 13] Permission
+denied: '/app/data/games.csv.tmp'` from `data.py`'s atomic-write cache
+pattern. `data/` is `.dockerignore`d (local caches, Turso is source of
+truth), so `/app/data` doesn't exist when the Dockerfile's `chown -R
+appuser:appuser /app` runs at build time. Docker then auto-creates the
+directory as `root:root` at container-start to host the individual-file
+bind mounts (`sgo_odds.json`, etc.), leaving it unwritable by the non-root
+`appuser` for anything the app itself needs to write at runtime (like the
+games.csv cache).
+
+### Changed
+- `Dockerfile`: added `RUN mkdir -p data/model_fits` before the
+  `useradd`/`chown -R` step, so both dirs are appuser-owned before any
+  bind mounts land on top. Rebuilt, retagged `nfl-edge:v2-docker` to match,
+  recreated all three containers. Verified `/app/data` is now
+  `appuser:appuser`, `/healthz` returns 200 on all of 8503/8504/8505, and
+  no errors in `nfl-edge-v2`'s logs.
+
 ## 2026-11-04 (chore: rebuilt Docker image, consolidated v2/v2-docker tags, restarted 8503-8505)
 
 ### Context
