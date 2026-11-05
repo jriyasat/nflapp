@@ -75,14 +75,22 @@ def log_predictions(games, elo, season, week, books_by_abbr=None, espn_odds=None
 
 GUST_PAPER_MIN = 20.0  # paper-trade trigger: forecast gusts (mph) at kickoff
 
+# paper-trade rules (Jeff, 2026-10-08 — per-rule records, samples disclosed).
+# Priority: snow > rain > gust (one paper per game; snow is the rarest claim).
+# Basis: BACKTESTS.md weather deep-dive (2021-25, n=897 outdoor vs closing totals).
+PAPER_RULES = [
+    ("snow",   "over",  "snow>0 → OVER (73% historically, n=15 — smallest sample)"),
+    ("rain",   "under", "rain>0 → UNDER (~65% historically, n=80)"),
+    ("gust20", "under", "gust ≥20 mph → UNDER (60-70% historically, n=290)"),
+]
 
-def log_gust_papers(games, season, week, books_by_abbr=None, quiet=True):
-    """PAPER TRADE (experimental=1): log a totals UNDER lean for every outdoor
-    game with forecast gusts >= GUST_PAPER_MIN at kickoff and a REAL books
-    consensus total (same books-only honesty rule as official picks).
-    Backtest basis (2021-25, n=897 outdoor): gust 20-29 mph unders went 60-70%
-    vs closing totals. Graded at close like any pick, but excluded from the
-    headline record — this is the live trial before any model change."""
+
+def log_weather_papers(games, season, week, books_by_abbr=None, quiet=True):
+    """PAPER TRADE (experimental=1): log a totals lean for every outdoor game
+    whose kickoff forecast trips a weather rule (snow → OVER, rain → UNDER,
+    gust ≥20 mph → UNDER) and has a REAL books consensus total (books-only
+    honesty rule). One paper per game, rule-tagged (paper_rule) for per-rule
+    receipts. Graded at close, excluded from the headline record."""
     import weather
     existing = db.existing_pick_keys()
     wk = games[(games["season"] == season) & (games["game_type"] == "REG")
@@ -102,20 +110,32 @@ def log_gust_papers(games, season, week, books_by_abbr=None, quiet=True):
             continue
         try:
             gust = weather.kickoff_gust(g.get("stadium"), g.get("gameday"), g.get("gametime"))
+            rain, snow = weather.kickoff_precip(g.get("stadium"), g.get("gameday"), g.get("gametime"))
         except Exception:
-            gust = None
-        if gust is None or gust < GUST_PAPER_MIN:
+            continue
+        if snow and snow > 0:
+            rule, side, val = "snow", "over", round(float(snow), 2)
+        elif rain and rain > 0:
+            rule, side, val = "rain", "under", round(float(rain), 2)
+        elif gust and gust >= GUST_PAPER_MIN:
+            rule, side, val = "gust20", "under", round(float(gust), 1)
+        else:
             continue
         db.insert_pick({"logged_at": now, "season": season, "week": week, "game": label,
-                        "pick_type": "total", "side": "under",
-                        "model_val": round(float(gust), 1),
+                        "pick_type": "total", "side": side, "model_val": val,
                         "market_val_log": float(pd.Series(totals).median()),
-                        "edge_log": None, "p_cover_log": None, "experimental": 1})
+                        "edge_log": None, "p_cover_log": None, "experimental": 1,
+                        "paper_rule": rule})
         existing.add((label, "total"))
         new += 1
     if not quiet:
-        print(f"logged {new} gust paper trades for {season} W{week}")
+        print(f"logged {new} weather paper trades for {season} W{week}")
     return new
+
+
+# backward-compat alias (original name when it was gust-only)
+def log_gust_papers(games, season, week, books_by_abbr=None, quiet=True):
+    return log_weather_papers(games, season, week, books_by_abbr, quiet)
 
 
 def grade_predictions(games):

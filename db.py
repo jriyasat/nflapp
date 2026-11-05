@@ -25,7 +25,7 @@ _BETS_COLS = ["id", "user", "date", "season", "week", "game", "bet_type",
               "selection", "line", "odds", "stake", "book", "status", "profit", "clv"]
 _PICKS_COLS = ["id", "logged_at", "season", "week", "game", "pick_type", "side",
                "model_val", "market_val_log", "edge_log", "p_cover_log",
-               "closing_line", "grade", "profit", "flag", "experimental"]
+               "closing_line", "grade", "profit", "flag", "experimental", "paper_rule"]
 
 _TURSO_CLIENT = None
 _TURSO_SCHEMA_DONE = False
@@ -154,6 +154,9 @@ def _ensure_user_cols(conn):
     if "experimental" not in pcols:
         # paper trades (e.g. gust-unders): graded at close, never in the headline record
         conn.execute("ALTER TABLE predictions ADD COLUMN experimental INTEGER DEFAULT 0")
+    if "paper_rule" not in pcols:
+        # which paper-trade rule fired: gust20 / rain / snow (NULL = legacy gust paper)
+        conn.execute("ALTER TABLE predictions ADD COLUMN paper_rule TEXT")
 
 
 # ---------------- per-user alert preferences (matrix: alert x channel) ----------------
@@ -751,12 +754,13 @@ def insert_pick(row):
     with _connect() as c:
         c.execute("""INSERT OR IGNORE INTO predictions
             (id, logged_at, season, week, game, pick_type, side, model_val,
-             market_val_log, edge_log, p_cover_log, closing_line, grade, profit, experimental)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             market_val_log, edge_log, p_cover_log, closing_line, grade, profit, experimental, paper_rule)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (uuid.uuid4().hex[:8], row["logged_at"], row["season"], row["week"],
              row["game"], row["pick_type"], row["side"], row["model_val"],
              row["market_val_log"], row["edge_log"], row["p_cover_log"],
-             None, "pending", None, int(row.get("experimental") or 0)))
+             None, "pending", None, int(row.get("experimental") or 0),
+             row.get("paper_rule")))
 
 
 def grade_pick(pick_id, closing_line, grade, profit):

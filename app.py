@@ -1565,21 +1565,24 @@ def track_record_page():
 
     # 🧪 paper trades (experimental) — live trial, never in the headline record
     if "experimental" in picks.columns and (picks["experimental"] == 1).any():
-        exp = picks[picks["experimental"] == 1]
+        exp = picks[picks["experimental"] == 1].copy()
+        exp["rule"] = exp["paper_rule"].fillna("gust20") if "paper_rule" in exp.columns else "gust20"
         st.subheader("🧪 Paper trades (experimental)")
-        st.caption("Gust ≥20 mph at kickoff → totals UNDER lean. Live trial before any model "
-                   "change — graded at close like real picks, but **not model picks** and "
-                   "excluded from every number above.")
-        g_ = exp[exp["grade"].isin(["won", "lost", "push"])]
-        if len(g_):
+        st.caption("Weather rules being trialed live before any model change — graded at close "
+                   "like real picks, but **not model picks** and excluded from every number above.")
+        _RULE_LBL = {"gust20": "💨 Gust ≥20 mph → UNDER (hist. 60–70%, n=290)",
+                     "rain": "🌧️ Rain > 0 → UNDER (hist. ~65%, n=80)",
+                     "snow": "❄️ Snow > 0 → OVER (hist. 73%, n=15 — smallest sample)"}
+        for rule, grp in exp.groupby("rule"):
+            g_ = grp[grp["grade"].isin(["won", "lost", "push"])]
             w_ = int((g_["grade"] == "won").sum()); l_ = int((g_["grade"] == "lost").sum())
             p_ = int((g_["grade"] == "push").sum())
-            rate = f" ({w_/(w_+l_):.1%} on decided)" if (w_ + l_) else ""
-            st.markdown(f"**Record: {w_}-{l_}-{p_}**{rate} · {int((exp['grade'] == 'pending').sum())} pending")
-        else:
-            st.markdown(f"**Record: 0-0-0** · {int((exp['grade'] == 'pending').sum())} pending")
-        _exp = exp[["week", "game", "side", "model_val", "market_val_log", "closing_line", "grade"]].copy()
-        _exp.columns = ["week", "game", "side", "gust mph", "total @ log", "closing", "grade"]
+            rate = f" — {w_/(w_+l_):.1%}" if (w_ + l_) else ""
+            pend = int((grp["grade"] == "pending").sum())
+            st.markdown(f"**{_RULE_LBL.get(rule, rule)}**  ·  {w_}-{l_}-{p_}{rate}"
+                        + (f" · {pend} pending" if pend else ""))
+        _exp = exp[["week", "game", "rule", "side", "model_val", "market_val_log", "closing_line", "grade"]].copy()
+        _exp.columns = ["week", "game", "rule", "side", "trigger", "total @ log", "closing", "grade"]
         st.dataframe(_exp.iloc[::-1], hide_index=True, width="stretch")
 
     st.subheader("All picks")

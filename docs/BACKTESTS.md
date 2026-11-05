@@ -203,3 +203,19 @@ record, shown on Track Record under 🧪 Paper trades. Adopt as a model
 adjustment only if the live trial confirms. Caveats: backtest used ACTUAL
 gusts, production bets FORECAST gusts (error shrinks edge); 2024 flip warns
 of losing years; 30+ weakening says books partially catch up.
+
+## Precipitation deep-dive (Oct 7, 2026) — rain joins the trial, snow flips sign
+
+Same 897-game dataset (2021–25 outdoor, actual kickoff-hour weather, closing
+totals; archive now stored fetch-once in data/weather_archive/). **Rain (no
+snow): any measurable rain → unders ~65% (n=80, z=-2.4; light rain z=-2.45,
+n=51).** Season persistence: 4/5 strongly under (2024 flat — same anomaly as
+gusts). **Snow at kickoff: went OVER 73.3% (n=15, z=+1.62 — NOT significant,
+but positive all 5 seasons)** — opposite of folk theory (heated fields; snow
+hurts defensive footing more). Rain+gust≥20 combo: under 61.1% (n=18).
+
+**Decision (Jeff, Oct 7): paper-trade BOTH.** Rules (priority snow > rain >
+gust, one paper per game, tagged in predictions.paper_rule): `snow` → OVER,
+`rain` → UNDER, `gust20` → UNDER. Track Record 🧪 section shows per-rule
+records with historical samples disclosed. Forecast-vs-actual caveat applies
+to all three; snow's n=15 is the weakest basis and is labeled as such.
