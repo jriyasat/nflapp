@@ -20,8 +20,24 @@ import streamlit as st
 import data as dl
 import db
 
+def _openrouter_key():
+    """OpenRouter API key from env or .streamlit/secrets.toml."""
+    key = os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        try:
+            import tomllib
+            sp = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              ".streamlit", "secrets.toml")
+            if os.path.exists(sp):
+                with open(sp, "rb") as f:
+                    key = tomllib.load(f).get("OPENROUTER_API_KEY")
+        except Exception:
+            pass
+    return key
+
+
 # ---------- configuration ----------
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+OPENROUTER_API_KEY = _openrouter_key()
 OPENROUTER_AVAILABLE = bool(OPENROUTER_API_KEY)
 
 OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'

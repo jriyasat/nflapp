@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-11-04 (fix: OpenRouter key rotated; real sentiment data collected for current week)
+
+### Context
+Follow-up to the 2026-11-03 Sentiment Lab fix. The `OPENROUTER_API_KEY` was
+invalid (401), blocking real data collection. User provided a new key.
+
+### Changed
+- `sentiment.py`: key lookup now checks `OPENROUTER_API_KEY` env var first,
+  falling back to `.streamlit/secrets.toml` (same pattern as `db.py`'s
+  Turso credential lookup) — avoids passing the secret as a literal
+  `docker run -e` flag (shell history / `docker inspect` exposure).
+- Added `OPENROUTER_API_KEY` to `/Users/jeff/nfl-edge/.streamlit/secrets.toml`
+  (already mounted read-only into all v2 containers) — one line, with
+  explicit user authorization for this specific edit to the v1 worktree.
+- `nfl-edge-v2-admin`'s image (`nfl-edge:v2-docker`) was missing `bs4`
+  despite it being in `requirements.txt` — installed at runtime to unblock
+  testing; the image itself should get rebuilt eventually so this isn't lost
+  again on next recreate.
+- Ran real sentiment collection for the current week (Week 9 by the time it
+  ran — confirms `current_season_week()` tracks correctly across day
+  changes mid-session): 23 of 29 teams scored with real LLM output, 6 had no
+  snippets available (Reddit 403s plus thin news/Exa results) and were
+  correctly left unscored rather than stored with fake data.
+- Note: editing `sentiment.py`/`admin.py`/`.streamlit/secrets.toml` on the
+  host breaks their single-file Docker bind mounts (Docker Desktop mounts go
+  stale when the source file is replaced via rename-on-save). Each edit this
+  session required recreating `nfl-edge-v2`, `nfl-edge-v2-ypp`, and
+  `nfl-edge-v2-admin` (same mounts/env, just re-attached) to pick up changes.
+
 ## 2026-11-03 (fix: Sentiment Lab was dead — local-SQLite isolation, hardcoded Week 4, silent LLM-failure corruption)
 
 ### Context
