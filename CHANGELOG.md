@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-11-04 (chore: rebuilt Docker image, consolidated v2/v2-docker tags, restarted 8503-8505)
+
+### Context
+`nfl-edge:v2-docker` (used by the admin container on 8505) was a stale image
+— built weeks before `nfl-edge:v2` and missing `beautifulsoup4` even though
+it's in `requirements.txt`. The `bs4` fix from the previous entry was only
+installed at runtime inside the live container, so it would have been lost
+on the next recreate. Root-caused: both tags were built from the same single
+`Dockerfile`, just at different times, so they'd drifted apart.
+
+### Changed
+- `docker build -t nfl-edge:v2 .` — fresh build from current source/
+  `requirements.txt`. Confirmed `bs4` now present (`4.15.0`).
+- `docker tag nfl-edge:v2 nfl-edge:v2-docker` — both tags now point at the
+  identical, current image, eliminating the drift. No separate admin
+  Dockerfile exists or is needed; the admin container already overrides
+  `CMD` to `streamlit run admin.py` at `docker run` time.
+- Recreated `nfl-edge-v2` (8503), `nfl-edge-v2-ypp` (8504), and
+  `nfl-edge-v2-admin` (8505) from the rebuilt image, preserving each
+  container's exact prior mounts/env/port mapping (captured via `docker
+  inspect` beforehand). All three came up healthy; verified `bs4` and
+  `sentiment` import cleanly inside the admin container.
+- Left the individual file bind mounts (`sentiment.py`, `sentiment_lab.py`,
+  `secrets.toml`, etc.) in place even though the image now bakes in current
+  source — didn't want to silently change the live-edit deployment model
+  this session relied on. Worth revisiting later: now that the image is
+  current, those source-file mounts are redundant (data-file mounts like
+  `ypp_coefficients.json` still aren't).
+
 ## 2026-11-04 (fix: OpenRouter key rotated; real sentiment data collected for current week)
 
 ### Context
