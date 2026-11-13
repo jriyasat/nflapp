@@ -219,3 +219,32 @@ gust, one paper per game, tagged in predictions.paper_rule): `snow` → OVER,
 `rain` → UNDER, `gust20` → UNDER. Track Record 🧪 section shows per-rule
 records with historical samples disclosed. Forecast-vs-actual caveat applies
 to all three; snow's n=15 is the weakest basis and is labeled as such.
+
+## Division / primetime / team-health angles (Nov 4, 2026) — all DEAD
+
+Jeff's three candidates tested on 1,359 REG games 2021–25 (correct
+away-perspective spread convention; closing lines; persistence by season).
+Health measured position-weighted (QB 4.0, WR/OT/DE/CB 2.0, else 1.0, K/P/LS
+0.25; Out 1.0 / D 0.5 / Q 0.25) from nflverse weekly reports, all five seasons.
+
+**Division games — DEAD.** Divisional away dogs cover 53.3% (n=287) vs 47.6%
+non-divisional, but z≈+0.3 overall (pushes handled) — sub-breakeven. The 3–7
+point band hits 56.9% (n=144) yet z≈+1.1; four of five seasons mildly positive
+but never decisively. Folk theory ("divisional dogs") is priced.
+
+**Primetime — DEAD.** TNF: nothing anywhere (over 49%, home 46.9%, n=96 —
+the short-rest under angle is gone; season persistence 33/37/68/53/52% over =
+random). SNF+MNF unders 58.0% (n=188, z=-2.85) looks alive until persistence:
+50/34/28/49/49% over — a 2022–23 flavor, dead for two straight seasons.
+Two-season flavors are the graveyard's most common epitaph.
+
+**Position-weighted team health — DEAD.** Home team much MORE hurt (burden
+diff ≥ +2.5): home covers 45.1% (n=315), consistent direction 2022–25
+(44/42/43/44%) but z≈+0.9 for the away side — closing lines already price the
+final report. Both-teams-healthy unders (59.7%, n=67): persistence
+47/40/29/30/55% over = noise. The market prices WHO is out, not just that
+someone is.
+
+None met the paper-trade bar (z-screen + persistence). Graveyard now at 13.
+The pattern holds: fully market-visible information (division, schedule slot,
+published injury reports) does not beat closing lines.
