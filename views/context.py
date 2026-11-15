@@ -37,3 +37,4 @@ class AppContext:
     
     # page navigation (the current radio selection)
     page: str
+    nv_status: str = "ok"

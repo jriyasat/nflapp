@@ -47,7 +47,22 @@ WIND_FLAG = 15.0
 WIND_NOTE = 10.0
 
 
+_WIND_MEMO = {}  # (stadium, day, gametime) -> mph|None; survives reruns in-process
+
+
 def kickoff_wind(stadium, gameday, gametime):
+    """Memoized wrapper — a rerun must never re-hit disk/JSON for the same game."""
+    try:
+        day = gameday.strftime("%Y-%m-%d") if not pd.isna(gameday) else "?"
+    except Exception:
+        day = "?"
+    k = (stadium, day, str(gametime))
+    if k not in _WIND_MEMO:
+        _WIND_MEMO[k] = _kickoff_wind_uncached(stadium, gameday, gametime)
+    return _WIND_MEMO[k]
+
+
+def _kickoff_wind_uncached(stadium, gameday, gametime):
     """Forecast wind (mph) at kickoff hour, or None if stadium indoor /
     game beyond the 16-day forecast window / fetch failure."""
     coords = STADIUM_WX.get(stadium)

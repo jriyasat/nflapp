@@ -448,7 +448,7 @@ def injuries_block(ctx, away, home):
                     "Status": r["status"], "Injury": r["detail"],
                 } for r in rows]), hide_index=True, width="stretch")
     if not any_data:
-        if ctx.injuries_err and nv_status != "ok":
+        if ctx.injuries_err and ctx.nv_status != "ok":
             st.warning("Injury feeds temporarily unavailable — hit 🔄 Refresh in a few minutes.")
         else:
             st.info("No injuries listed (official report publishes Wednesday of game week).")

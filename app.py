@@ -296,6 +296,7 @@ try:
     props_api_key = st.secrets.get("ODDS_API_KEY_PROPS", "") or api_key  # dedicated props quota pool
 except Exception:
     props_api_key = api_key
+@st.cache_data(ttl=300, show_spinner=False)  # sidebar freshness label: Turso meta roundtrip, not per-rerun
 def _lines_updated_at():
     # primary: the Turso single-fetcher payload (what Cloud actually serves —
     # its disk caches are usually empty, so the old disk-only check showed "—")
@@ -362,50 +363,44 @@ def _board_rows(season, week):
 
 
 # ---------------- live data ----------------
-espn_odds = {}
-try:
-    espn_odds = dl.espn_week_odds(season, week)
-except Exception as e:
-    if IS_ADMIN:
-        st.sidebar.warning(f"ESPN odds unavailable: {e}")
+# V2 reads the Turso shared cache that V1's warm jobs write — no live API calls
+# on the request path, and @st.cache_data means a rerun never re-parses payloads.
+@st.cache_data(ttl=900, show_spinner=False)
+def _load_espn_odds(season, week):
+    try:
+        return dl.espn_week_odds(season, week) or {}
+    except Exception:
+        return {}
 
-books_by_abbr = {}
-odds_err = None
-odds_source = None
-_sgo_key = dl.sgo_api_key()
-try:
-    raw = dl.cached_sgo_lines()  # free & keyless: Turso shared cache / disk (works on Cloud)
-    odds_source = "SportsGameOdds" if raw else None
-    if not raw and _sgo_key:  # live fetch only when the shared cache is empty
-        raw = dl.sgo_lines(_sgo_key)
-        odds_source = "SportsGameOdds"
-    if not raw and api_key:  # last resort: The Odds API (quota-dead main key)
-        raw = dl.odds_api_lines(api_key)
-        odds_source = "The Odds API"
-    for (away_name, home_name), books in (raw or {}).items():
+@st.cache_data(ttl=900, show_spinner=False)
+def _load_books_by_abbr():
+    """SGO board lines from the shared payload (Turso/disk) — NO network."""
+    raw = dl.cached_sgo_lines() or {}
+    out = {}
+    for (away_name, home_name), books in raw.items():
         key = (dl.TEAM_NAME_TO_ABBR.get(away_name), dl.TEAM_NAME_TO_ABBR.get(home_name))
         if all(key):
-            books_by_abbr[key] = books
-except Exception as e:
-    odds_err = str(e)
-if odds_err and IS_ADMIN:
-    st.sidebar.error(f"Odds ({odds_source or 'no key'}): {odds_err}")
-elif not books_by_abbr and (_sgo_key or api_key) and IS_ADMIN:
-    st.sidebar.info(f"{odds_source}: no NFL markets on the board right now.")
+            out[key] = books
+    return out
 
-injuries = {}
-injuries_err = None
-try:
-    injuries = dl.espn_injuries()
-except Exception as e:
-    injuries_err = str(e)
+@st.cache_data(ttl=1800, show_spinner=False)
+def _load_injuries_bundle(season, week):
+    espn, espn_err = {}, None
+    try:
+        espn = dl.espn_injuries()
+    except Exception as e:
+        espn_err = str(e)
+    try:
+        nv, status = dl.nflverse_injuries()
+        nv = dl.apply_manual_outs(nv, season, week)
+        nv = dl.apply_sleeper_outs(nv, season, week)
+    except Exception:
+        nv, status = {}, "unavailable"
+    return espn, espn_err, nv, status
 
-try:
-    nv_injuries, nv_status = dl.nflverse_injuries()
-    nv_injuries = dl.apply_manual_outs(nv_injuries, season, week)
-    nv_injuries = dl.apply_sleeper_outs(nv_injuries, season, week)
-except Exception:
-    nv_injuries, nv_status = {}, "unavailable"
+espn_odds = _load_espn_odds(season, week)
+books_by_abbr = _load_books_by_abbr()
+injuries, injuries_err, nv_injuries, nv_status = _load_injuries_bundle(season, week)
 
 st.sidebar.markdown(f"**{len(week_games)} games** loaded • injuries for {len(injuries)} teams")
 page_options = (["Games", "🔴 Live", "📒 Bet Journal", "📈 Track Record", "🏆 Pick'em", "📰 News", "🏅 Standings",
@@ -451,6 +446,7 @@ def _build_ctx(page, injuries=injuries):
         FEATURE_GATES=FEATURE_GATES,
         VALUE_EDGE_MIN=VALUE_EDGE_MIN,
         page=page,
+        nv_status=nv_status,
     )
 
 # ---------------- bet journal page ----------------

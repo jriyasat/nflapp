@@ -8,6 +8,7 @@ import journal
 import db
 from shared import logo_img, matchup_md, _ABBR_TO_NAME
 
+@st.cache_data(ttl=300, show_spinner=False)  # live scores: 5-min cache, never per-rerun
 def _live_score_map(season, week):
     """{(away, home): live event} — ESPN first, SGO when ESPN is WAF-banned."""
     try:
