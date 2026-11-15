@@ -1023,20 +1023,25 @@ if page == "🏅 Standings":
 # ---------------- power rankings page ----------------
 @st.cache_data(ttl=3600)
 def _rankings_data(season):
-    cur = pr.Elo(games).ratings
-    done = games[(games["season"] == season) & games["result"].notna()
-                 & games["game_type"].isin(["REG", "POST"])]
-    prev = {}
-    if not done.empty:
-        lw = int(done["week"].max())
-        prev = pr.Elo(games[~((games["season"] == season) & (games["week"] == lw))]).ratings
+    elo = pr.Elo(games)
+    cur = elo.ratings
+    snap = {wk: ratings for s, wk, ratings in elo.history if s == season}
+    # Δ wk = movement in the last FULLY completed week (mid-week, partial results
+    # would show "– +0" for everyone who hasn't played yet — confusing)
+    sg = games[(games["season"] == season) & games["game_type"].isin(["REG", "POST"])]
+    complete = [wk for wk, grp in sg.groupby("week") if grp["result"].notna().all()]
+    delta = {}
+    if complete:
+        lw = max(complete)
+        if lw in snap and (lw - 1) in snap:
+            delta = {t: snap[lw].get(t, 0) - snap[lw - 1].get(t, 0) for t in snap[lw]}
     rows = []
     for t, r in sorted(cur.items(), key=lambda kv: -kv[1]):
         if t not in TEAM_SET:
             continue  # defunct franchises (STL/SD/OAK) — in history, not in current rankings
-        d = r - prev.get(t, r)
+        d = delta.get(t, 0)
         rows.append({"#": len(rows) + 1, "Team": t, "Logo": logo_url(t), "Rating": round(r),
-                     "Δ wk": f"{'↑' if d > 0.5 else ('↓' if d < -0.5 else '–')} {d:+.0f}" if prev else "–"})
+                     "Δ wk": f"{'↑' if d > 0.5 else ('↓' if d < -0.5 else '–')} {d:+.0f}" if delta else "–"})
     return rows
 
 
