@@ -1078,19 +1078,32 @@ def rankings_page():
     if not hist.empty:
         import altair as alt
         st.subheader("📈 Season Progression")
-        st.caption("Click a team in the legend to toggle it off/on — build up any subset to compare.")
-        sel = alt.selection_point(fields=["Team"], bind="legend", toggle="true", empty=False)
+        st.caption("Starts with the current top 10 — click teams in the legend to "
+                   "toggle them off/on and build any comparison.")
+        # top 10 by latest weekly snapshot
+        latest_wk = hist["Week"].max()
+        top10 = (hist[hist["Week"] == latest_wk].nlargest(10, "Rating")["Team"].tolist())
+        st.session_state.setdefault("pr_chart_mode", "top10")
+        b1, b2, _ = st.columns([1, 1.3, 6])
+        if b1.button("🧹 Clear graph", key="pr_clear"):
+            st.session_state["pr_chart_mode"] = "blank"
+        if b2.button("↺ Back to top 10", key="pr_reset"):
+            st.session_state["pr_chart_mode"] = "top10"
+        mode = st.session_state["pr_chart_mode"]
+        # distinct key per mode forces a fresh chart with fresh selection state
+        sel = alt.selection_point(fields=["Team"], bind="legend", toggle="true", empty=True,
+                                  value=[{"Team": t} for t in (top10 if mode == "top10" else [])])
         domain = sorted(TEAM_COLORS)
         chart = (alt.Chart(hist).mark_line(point=True)
                  .encode(x=alt.X("Week:O"), y=alt.Y("Rating:Q", scale=alt.Scale(zero=False)),
                          color=alt.Color("Team:N",
                                          scale=alt.Scale(domain=domain, range=[TEAM_COLORS[t] for t in domain]),
                                          legend=alt.Legend(symbolLimit=40, columns=2)),
-                         opacity=alt.condition(sel, alt.value(0.07), alt.value(1)),
+                         opacity=alt.condition(sel, alt.value(1), alt.value(0.06)),
                          tooltip=["Team", "Week", "Rating"])
                  .add_params(sel)
                  .properties(height=440))
-        st.altair_chart(chart, width="stretch")
+        st.altair_chart(chart, width="stretch", key=f"pr_chart_{mode}")
 
 if page == "📊 Power Rankings":
     rankings_page()
