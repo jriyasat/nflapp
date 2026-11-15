@@ -577,7 +577,7 @@ def sentiment_tab(ctx, g, away, home):
             
         else:
             st.warning(f"Sentiment scores not available for {away} and/or {home}. Ensure sentiment collection has run.")
-            if st.button("Collect Sentiment for This Week", key="collect_sent"):
+            if st.button("Collect Sentiment for This Week", key=f"collect_sent_{away}_{home}"):
                 st.info("Sentiment collection would run here (requires OpenRouter API key).")
     except ImportError:
         st.error("Sentiment module not available.")
