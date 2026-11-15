@@ -1094,15 +1094,23 @@ def rankings_page():
         sel = alt.selection_point(fields=["Team"], bind="legend", toggle="true", empty=True,
                                   value=[{"Team": t} for t in (top10 if mode == "top10" else [])])
         domain = sorted(TEAM_COLORS)
-        chart = (alt.Chart(hist).mark_line(point=True)
+        lines = (alt.Chart(hist).mark_line(point=True)
                  .encode(x=alt.X("Week:O"), y=alt.Y("Rating:Q", scale=alt.Scale(zero=False)),
                          color=alt.Color("Team:N",
                                          scale=alt.Scale(domain=domain, range=[TEAM_COLORS[t] for t in domain]),
                                          legend=alt.Legend(symbolLimit=40, columns=2)),
                          opacity=alt.condition(sel, alt.value(1), alt.value(0.06)),
                          tooltip=["Team", "Week", "Rating"])
-                 .add_params(sel)
                  .properties(height=440))
+        # team logos at the latest point of each line (fade with the same selection)
+        last = hist[hist["Week"] == latest_wk].copy()
+        last["logo"] = last["Team"].map(logo_url)
+        logos = (alt.Chart(last).mark_image(width=24, height=24)
+                 .encode(x=alt.X("Week:O"), y=alt.Y("Rating:Q", scale=alt.Scale(zero=False)),
+                         url="logo:N",
+                         opacity=alt.condition(sel, alt.value(1), alt.value(0.06)),
+                         tooltip=["Team", "Week", "Rating"]))
+        chart = alt.layer(lines, logos).add_params(sel)
         st.altair_chart(chart, width="stretch", key=f"pr_chart_{mode}")
 
 if page == "📊 Power Rankings":
