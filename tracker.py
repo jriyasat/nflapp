@@ -138,6 +138,49 @@ def log_gust_papers(games, season, week, books_by_abbr=None, quiet=True):
     return log_weather_papers(games, season, week, books_by_abbr, quiet)
 
 
+def log_divdog_papers(games, season, week, books_by_abbr=None, quiet=True):
+    """PAPER TRADE (experimental=1, paper_rule='divdog'): divisional underdogs
+    getting ≤3 points, BOTH teams on normal rest (≥7 days), weeks ≥12 only →
+    bet the DOG ATS vs the books consensus line.
+    Backtest (2021-25, n=61): dogs cover 68.9%, positive ALL 5 seasons
+    (90/60/61/67/73%), z=+2.58; dogs win outright 52.6% in the parent bucket.
+    The short-rest variant is DEAD (25-33%) — do NOT widen this rule."""
+    if week < 12:
+        return 0
+    existing = db.existing_pick_keys()
+    wk = games[(games["season"] == season) & (games["game_type"] == "REG")
+               & (games["week"] == week)]
+    books_by_abbr = books_by_abbr or {}
+    now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
+    new = 0
+    for _, g in wk.iterrows():
+        if not g.get("div_game"):
+            continue
+        hr, ar = g.get("home_rest"), g.get("away_rest")
+        if pd.isna(hr) or pd.isna(ar) or hr < 7 or ar < 7:
+            continue  # short-rest divisional dogs are the DEAD slice
+        label = f"{g['away_team']} @ {g['home_team']}"
+        if (label, "spread") in existing:
+            continue
+        books = books_by_abbr.get((g["away_team"], g["home_team"])) or {}
+        aways = [b["away_spread"] for b in books.values() if b.get("away_spread") is not None]
+        if not aways:
+            continue  # books-only honesty rule
+        med = float(pd.Series(aways).median())
+        if med == 0 or abs(med) > 3:
+            continue  # pick'em or real favorite — rule is dogs ≤3 only
+        dog, dog_line = (g["away_team"], med) if med > 0 else (g["home_team"], -med)
+        db.insert_pick({"logged_at": now, "season": season, "week": week, "game": label,
+                        "pick_type": "spread", "side": dog, "model_val": dog_line,
+                        "market_val_log": dog_line, "edge_log": None, "p_cover_log": None,
+                        "experimental": 1, "paper_rule": "divdog"})
+        existing.add((label, "spread"))
+        new += 1
+    if not quiet:
+        print(f"logged {new} divdog paper trades for {season} W{week}")
+    return new
+
+
 def grade_predictions(games):
     """Grade pending picks whose games have results. Returns updated df."""
     picks = db.load_picks()

@@ -248,3 +248,26 @@ someone is.
 None met the paper-trade bar (z-screen + persistence). Graveyard now at 13.
 The pattern holds: fully market-visible information (division, schedule slot,
 published injury reports) does not beat closing lines.
+
+## Divisional dogs deep-dive (Nov 4, 2026) — ONE slice survives → paper trade
+
+Full grid over 480 division games 2021–25 (closing lines, pushes handled,
+persistence by season). Headline: divisional favorites cover only 46.0%
+(n=480, z=-2.79) — the market's favorite in close division games is nearly
+meaningless (div dogs ≤3, normal rest win OUTRIGHT 52.6%).
+
+**Jeff's short-rest combination is BACKWARDS — dead:** div dogs ≤3 with the
+favorite on short rest cover 25.0% (n=8); both-short (TNF-ish) 33.3% (n=21).
+The edge lives entirely in normal-rest games (60.7%, n=135, 5/5 seasons).
+
+**Survivor (passes z-screen AND persistence): div dog ≤3, normal rest,
+week ≥12 → dog covers 68.9% (n=61, z=+2.58, positive all 5 seasons:
+90/60/61/67/73%).** Runner-up: dog-healthier slice 65.2% (n=66, z=+2.09, 5/5).
+Multiple-testing caveat: ~13 slices cut, so treat z with humility; the 5/5
+persistence is the real evidence.
+
+**Decision (Jeff, Nov 4): paper trade 'divdog'** — divisional dogs ≤3 with
+both teams on ≥7 days rest, weeks 12+ only, vs books consensus line,
+experimental=1, graded at close, excluded from headline. ~15-20 trials/yr.
+First possible trials: W12 2026. Short-rest widening is explicitly forbidden
+in the rule docstring.

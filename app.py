@@ -1572,7 +1572,8 @@ def track_record_page():
                    "like real picks, but **not model picks** and excluded from every number above.")
         _RULE_LBL = {"gust20": "💨 Gust ≥20 mph → UNDER (hist. 60–70%, n=290)",
                      "rain": "🌧️ Rain > 0 → UNDER (hist. ~65%, n=80)",
-                     "snow": "❄️ Snow > 0 → OVER (hist. 73%, n=15 — smallest sample)"}
+                     "snow": "❄️ Snow > 0 → OVER (hist. 73%, n=15 — smallest sample)",
+                     "divdog": "🏈 Div dog ≤3, normal rest, W12+ → DOG ATS (hist. 68.9%, n=61, 5/5 seasons)"}
         for rule, grp in exp.groupby("rule"):
             g_ = grp[grp["grade"].isin(["won", "lost", "push"])]
             w_ = int((g_["grade"] == "won").sum()); l_ = int((g_["grade"] == "lost").sum())

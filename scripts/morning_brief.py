@@ -272,6 +272,7 @@ def main():
     tracker.log_predictions(games, elo, season, week, books_by_abbr, espn_odds, nv)
     try:
         tracker.log_weather_papers(games, season, week, books_by_abbr)
+        tracker.log_divdog_papers(games, season, week, books_by_abbr)
     except Exception:
         pass
     tracker.grade_predictions(games)
