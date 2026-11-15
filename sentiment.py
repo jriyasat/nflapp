@@ -312,21 +312,33 @@ _WORDCLOUD_STOPWORDS = {
     'more', 'most', 'some', 'such', 'only', 'out', 'into', 'over',
     'under', 'after', 'before', 'during', 'while', 'because',
     'since', 'until', 'through', 'again', 'further', 'too', 'very',
+    # NFL/sports-news boilerplate: shows up in every team's cloud
+    # regardless of actual sentiment, so it's noise, not signal.
+    'nfl', 'week', 'weeks', 'season', 'game', 'games', 'news',
+    'said', 'according', 'report', 'reports', 'reported', 'sunday',
+    'monday', 'thursday', 'league', 'players', 'time', 'new', 'one',
+    'two', 'first', 'second', 'last', 'year', 'years', 'getty',
+    'images', 'photo', 'via', 'com', 'www', 'http', 'https',
+    'football', 'team', 'rankings', 'ranking', 'field', 'fantasy',
 }
 
 
-def tokenize_for_wordcloud(text):
+def tokenize_for_wordcloud(text, extra_stopwords=None):
     """Lowercase, strip punctuation, drop stopwords/short/numeric tokens.
+
+    `extra_stopwords` lets callers exclude context-specific noise (e.g. the
+    team's own name, which would otherwise dominate every cloud).
 
     Pure function (no DB/network) so the word-frequency logic can be
     unit tested in isolation from word_cloud_html's snippet fetching.
     """
+    stopwords = _WORDCLOUD_STOPWORDS | (extra_stopwords or set())
     text_lower = text.lower()
     translator = str.maketrans(string.punctuation, ' ' * len(string.punctuation))
     cleaned = text_lower.translate(translator)
     words = cleaned.split()
     words = [w for w in words if w.isalpha() and len(w) >= 3]
-    return [w for w in words if w not in _WORDCLOUD_STOPWORDS]
+    return [w for w in words if w not in stopwords]
 
 
 def word_cloud_html(team, season, week, source='combined'):
@@ -352,7 +364,9 @@ def word_cloud_html(team, season, week, source='combined'):
     if not snippet_text.strip():
         return None
 
-    filtered_words = tokenize_for_wordcloud(snippet_text)
+    team_stopwords = {team.lower()}
+    team_stopwords.update(w.lower() for w in TEAM_TO_FULL.get(team, '').split())
+    filtered_words = tokenize_for_wordcloud(snippet_text, extra_stopwords=team_stopwords)
     if not filtered_words:
         return None
 
