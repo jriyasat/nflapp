@@ -1069,9 +1069,7 @@ with tab3:
                     st.code(result.stdout[:2000])
                 else:
                     st.error(f"❌ Retraining failed: {result.stderr[:1000]}")
-        
-        st.warning("⚠️ YPP coefficients need retraining before tuning meaningful.")
-        
+
         # Test Configuration
         st.subheader("🧪 Test Configuration")
         test_name = st.text_input("Test name (required to apply)", placeholder="e.g., high-pass-volume-2")
