@@ -87,8 +87,9 @@ def main():
         label = f"{away} @ {home}"
         st = dict(state.get(label, {}))
 
-        # ---- spread ----
-        if edge is not None and abs(edge) >= EDGE_MIN:
+        # ---- spread (books-only: never alert edges vs espn_ml/nflverse fallback
+        # lines — alertable = loggable, same rule as tracker + app board) ----
+        if edge is not None and abs(edge) >= EDGE_MIN and pred.get("market_src") == "books":
             first = "sp_edge" not in st
             moved = (st.get("sp_line") is not None and mk is not None
                      and abs(mk - st["sp_line"]) >= MOVE_MIN)
@@ -105,9 +106,10 @@ def main():
         if mk is not None:
             st["sp_line"] = round(float(mk), 2)
 
-        # ---- total ----
+        # ---- total (books-only, same rule as spread above) ----
         t_edge = (float(mt) - float(kt)) if (mt is not None and kt is not None) else None
-        if t_edge is not None and abs(t_edge) >= EDGE_MIN:
+        if (t_edge is not None and abs(t_edge) >= EDGE_MIN
+                and pred.get("market_src") == "books"):
             first = "tot_edge" not in st
             moved = (st.get("tot_line") is not None and kt is not None
                      and abs(kt - st["tot_line"]) >= MOVE_MIN)

@@ -309,7 +309,8 @@ def main():
                     tot_hits.append((abs(gap),
                                      f"• {label}: model {pred['model_total']:.1f} vs mkt "
                                      f"{pred['market_total']:.1f} → *{lean}* (EV {ev*100:+.1f}%)"))
-        if pred.get("edge_pts") is not None and abs(pred["edge_pts"]) >= EDGE_MIN:
+        if (pred.get("edge_pts") is not None and abs(pred["edge_pts"]) >= EDGE_MIN
+                and pred.get("market_src") == "books"):  # books-only: alert only what we'd log (no fallback-line edges)
             new_edge_snap[label] = round(pred["edge_pts"], 1)
             side = g["home_team"] if pred["edge_pts"] > 0 else g["away_team"]
             ev = pred.get("ev_home" if pred["edge_pts"] > 0 else "ev_away", 0)
