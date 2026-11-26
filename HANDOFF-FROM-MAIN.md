@@ -276,3 +276,56 @@ These are the conditions:
 - `beautifulsoup4` must be pinned in requirements.txt, and the tab must render
   empty-state cleanly when a game has no AN data (international games, late
   weeks) — no exceptions reaching the game page.
+
+## 17. Playoff (POST) support on main (2026-11-25, commit 280ef3b) — PORT THIS
+
+Main now supports the postseason end-to-end. v2 MUST match this data contract
+before January or v2's app/containers diverge from production mid-playoffs:
+
+- **data.py `load_games()`**: nflverse `game_type` values WC/DIV/CON/SB are
+  normalized to `"POST"` at load; the original round is preserved in a new
+  derived column `game_round` ("Wild Card"/"Divisional"/"Conference"/"Super
+  Bowl", "" for REG). Module constants: `POST_GAME_TYPES`, `POST_ROUND_NAMES`,
+  `POST_WEEK_MIN = 19` (playoff weeks are 19-22 in the 17-game era; app has
+  only ever logged picks for 2026+, so week >= 19 ⟺ postseason).
+- **`current_season_week(df)`** now spans REG+POST: after Week 18 it advances
+  to the first unplayed playoff week (Wild Card → Super Bowl). Note: nflverse
+  only adds playoff rows once matchups are set, so the app sits on Week 18
+  until then — expected, not a bug.
+- **Filters extended to `isin(["REG","POST"])`**: tracker.log_predictions,
+  tracker.log_weather_papers, tracker.grade_predictions, journal.settle,
+  morning_brief (week scope + Monday recap), value_radar, prop_warm,
+  prop_scan, and the app.py week-scoped views (board/completed/journal
+  picker). Week pickers label playoff weeks by round name, not "Week 19".
+- **Intentionally REG-only**: standings/seeds (analytics), and the divdog
+  paper rule (validated on REG weeks 12+ only — never extend without a new
+  backtest).
+- **Track Record page**: new "🏆 Playoffs (tracked separately)" segment —
+  picks with `week >= POST_WEEK_MIN` get their own record so REG receipts
+  stay apples-to-apples (Jeff's call, 2026-11-25). The Post-Fix Era segment
+  is now capped at week < 19.
+- **Elo consequence**: `predictor.Elo` trains on `isin(["REG","POST"])` — it
+  now sees 309 historical playoff games, so ratings drift slightly vs any
+  REG-only Elo in v2. Backtest comparisons across the port must account for
+  this (rerun v2 backtests after porting, don't compare to pre-port numbers).
+
+## 18. Books-only alert guard on main (2026-11-25, commit eafd44e)
+
+`morning_brief` MODEL EDGES and `value_radar` (spread + total) now require
+`pred["market_src"] == "books"` — same rule as tracker logging and the app
+board. **Alertable = loggable everywhere.** v2's alert paths must keep this
+guard; Tuesday alerts were inflating pick counts with fallback-line edges
+(opening lines disagree with the model most, early week).
+
+## 19. Snap-momentum gravestone + snap-pipeline bug notes (2026-11-25)
+
+- Snap/role-trend momentum for rec props: DEAD with numbers
+  (docs/BACKTESTS.md on main). A flat 5% shrink control matched every
+  momentum variant — always run a shrink control on projection tweaks.
+- **Two units bugs live in v2's `scripts/backtest_props_v2.py` (unfixed
+  there):** agg_snap `offense_pct` is a FRACTION (0-1) but the script divides
+  by 100, and the Rams snap merge fails silently (`LA` vs `LAR`). Fixed
+  versions are in v2 `scripts/backtest_snap_momentum.py` (commit b4521d8).
+  Rush-yds v2 production is unaffected (carries-based). Rec/pass snap-tuning
+  rows in tuning_history.csv were computed under these bugs — treat as void.
+  Fix backtest_props_v2.py before any further snap-based tuning runs.
