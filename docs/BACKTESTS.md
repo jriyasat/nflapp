@@ -271,3 +271,32 @@ both teams on ≥7 days rest, weeks 12+ only, vs books consensus line,
 experimental=1, graded at close, excluded from headline. ~15-20 trials/yr.
 First possible trials: W12 2026. Short-rest widening is explicitly forbidden
 in the rule docstring.
+
+## Snap/role-trend momentum for rec props (Nov 25, 2026) — DEAD
+
+Hypothesis: books build prop lines off season-long usage, so a player whose
+role is *growing* (recent-3-game snap share >> season ewm) is underpriced.
+Tested as (a) snap-momentum ratio multiplier on target share and (b) direct
+target-share momentum blends, walk-forward, point-in-time, 7,248 role-qualified
+WR/TE player-weeks 2023–25 (`~/nfl-edge-v2/scripts/backtest_snap_momentum.py`).
+
+| Variant | rec_yds MAE | rec MAE |
+|---|---|---|
+| v1 / naive | 22.99 / 23.26 | 1.59 / 1.61 |
+| best momentum (snap ratio, sqrt) | 23.53 | 1.61 |
+| **flat 5% shrink control (no information)** | **23.13** | **1.59** |
+
+Every momentum variant loses the MAE gate, and the zero-information shrink
+control matches or beats every momentum lean hit-rate (55–59% vs 52–57%) —
+the apparent "edge" was bias correction of an over-projecting base, not role
+information. Snap counts are public Monday morning; books re-line props
+within 1–2 weeks of a role change, so a 3-game trend is already priced.
+**Decision (Jeff, Nov 25): gravestone. Do not resurrect.**
+
+**Pipeline bugs found & fixed in the research script (not yet in
+backtest_props_v2.py):** agg_snap `offense_pct` is a FRACTION (0–1) but the
+original script divided by 100 (snap shares 100× too small), its snap gate
+compared fractions to 0.40 (passed everyone), and the Rams snap merge failed
+silently (`LA` vs `LAR`). Rush-yds v2 in production is UNAFFECTED
+(carries-based); snap-share tuning rows in tuning_history.csv for rec/pass
+were computed under these bugs — treat them as void.
