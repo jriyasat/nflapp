@@ -19,7 +19,7 @@
 | NFL Lines Warm (SGO → Turso) | 4b79a2913d68 | 6:00/12:00/18:00/23:00 ET | Pushes the SGO board (lines + player props) into the Turso `shared_cache` table with kickoff-freeze (started games keep pre-start lines). One fetch cycle for ALL environments (~64 objects/day, free-tier safe) |
 | NFL Edge keep-alive | 0627253ba560 | 8:05 + 20:05 daily | Pings /healthz; alerts only if cloud app is down |
 | NFL Weekly Picks Video | 2f4766c31049 | Thu 7:00 ET | Builds the week's picks video (75s 16:9 + 40s Short) in `~/videos/nfl-edge-weekly-picks` (HyperFrames template + edge-tts voiceover; zero odds-API spend — reads shared SGO cache), uploads both to YouTube UNLISTED, reports links to Telegram. YouTube OAuth: one-time setup in `scripts/youtube_upload.py` docstring (secrets/ there, never in git) |
-| Playoff build reminder | f32fe4ea0898 | one-shot 2026-12-01 | Remind Jeff to build POST support (week picker, journal/tracker grading, brief) — DECIDED: preseason skipped, pick'em shelved |
+| ~~Playoff build reminder~~ | ~~f32fe4ea0898~~ | ~~one-shot 2026-12-01~~ | DONE early 2026-11-25 (commit 280ef3b): POST support shipped — job removed |
 
 ## Shared cache (single-fetcher, since 2026-09-13)
 
@@ -66,7 +66,8 @@ Turso table `shared_cache(key, payload, updated_at-epoch)`. Writer = lines-warm 
 
 - DONE: S1 (cookie fail-closed), S2 (pick'em server-side lock), S4 (delete-account password), O2 (user_level memo), O3 (quota: 1 prop-load/day free users, Thursday-only scan ≈100 credits/mo), O4 (single `emailer` path), O1 (lazy game rendering — only open games render tabs), G3 (central `FEATURE_GATES` in app.py)
 - DEFERRED: S3 (login throttling — low value), O5 (script common-core — mostly subsumed by email consolidation), G1 (full page-dispatch registry — do when the next page lands), G2 (data-source registry — do when adding a paid feed), G4 (model constants to config)
-- DEFERRED (user decisions): preseason support (skipped), pick'em was built, playoff support → build Dec 2026 (reminder job f32fe4ea0898)
+- DEFERRED (user decisions): preseason support (skipped), pick'em was built
+- DONE (2026-11-25, commit 280ef3b): playoff POST support — data.py normalizes nflverse WC/DIV/CON/SB → `game_type=POST` (+`game_round` label col, `POST_WEEK_MIN=19`); `current_season_week` advances Wild Card→SB; tracker/journal/brief/radar/props include POST; Track Record has a separate Playoffs segment; divdog paper rule intentionally REG-only. Notes for v2 in HANDOFF-FROM-MAIN.md.
 
 ## Rollback
 
