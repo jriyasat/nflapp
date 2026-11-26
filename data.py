@@ -877,10 +877,11 @@ def load_player_stats():
                     with open(tmp, "wb") as f:
                         f.write(r.content)
                     os.replace(tmp, path)
-                else:
-                    continue
             except Exception:
-                continue
+                # refresh failed (e.g. path is a read-only bind mount and
+                # os.replace can't swap onto it) — fall through and use
+                # whatever's on disk rather than dropping this season.
+                pass
         if os.path.exists(path):
             frames.append(pd.read_csv(path, usecols=lambda c: c in _PS_COLS,
                                       low_memory=False))
