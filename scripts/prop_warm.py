@@ -42,7 +42,7 @@ def main():
         return
     games = dl.load_games()
     season, week = dl.current_season_week(games)
-    wk = games[(games["season"] == season) & (games["game_type"] == "REG")
+    wk = games[(games["season"] == season) & (games["game_type"].isin(["REG", "POST"]))
                & (games["week"] == week)]
     now = pd.Timestamp.now()
     horizon = now + pd.Timedelta(days=DAYS)

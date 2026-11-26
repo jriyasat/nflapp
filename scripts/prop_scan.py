@@ -35,7 +35,7 @@ def _get_key():
 def scan_edges(games, season, week):
     """Scan top-edge games for prop edges. Returns (hits: [(edge_pct, line_str)], scanned)."""
     wk = games[(games["season"] == season) & (games["week"] == week)
-               & (games["game_type"] == "REG")]
+               & (games["game_type"].isin(["REG", "POST"]))]
     if wk.empty:
         return [], 0
     key = _get_key()
@@ -80,7 +80,7 @@ def main():
     games = dl.load_games()
     season, week = dl.current_season_week(games)
     wk = games[(games["season"] == season) & (games["week"] == week)
-               & (games["game_type"] == "REG")]
+               & (games["game_type"].isin(["REG", "POST"]))]
     if wk.empty:
         return
     if not _get_key():

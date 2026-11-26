@@ -32,7 +32,7 @@ def implied(odds):
 
 def _find_game(games, season, week, game_label):
     g = games[(games["season"] == season) & (games["week"] == week) &
-              (games["game_type"] == "REG")]
+              (games["game_type"].isin(["REG", "POST"]))]
     for _, r in g.iterrows():
         if f"{r['away_team']} @ {r['home_team']}" == game_label:
             return r

@@ -270,8 +270,11 @@ st.sidebar.caption("21+ · Entertainment & informational purposes only — not b
                    "If gambling stops being fun: **1-800-GAMBLER**. See **📜 Terms**.")
 season, week = dl.current_season_week(games)
 season = st.sidebar.number_input("Season", 2020, 2030, max(2020, min(2030, season)))
-weeks = sorted(games[(games["season"] == season) & (games["game_type"] == "REG")]["week"].unique())
-week = st.sidebar.selectbox("Week", weeks, index=weeks.index(week) if week in weeks else 0)
+weeks = sorted(games[(games["season"] == season) & (games["game_type"].isin(["REG", "POST"]))]["week"].unique())
+_round_lbl = (games[(games["season"] == season) & (games["game_round"] != "")]
+              .groupby("week")["game_round"].first().to_dict())
+week = st.sidebar.selectbox("Week", weeks, format_func=lambda wk: _round_lbl.get(wk, f"Week {wk}"),
+                            index=weeks.index(week) if week in weeks else 0)
 KEY_FILE = os.path.join(dl.CACHE, "odds_api_key.txt")
 try:
     with open(KEY_FILE) as _f:
@@ -325,7 +328,7 @@ def _et(ts):
 def _board_rows(season, week):
     """Week-at-a-glance board: model vs market for every UPCOMING game (15-min cache).
     Completed games move to the Completed section (score + model receipts)."""
-    wk = games[(games["season"] == season) & (games["game_type"] == "REG") &
+    wk = games[(games["season"] == season) & (games["game_type"].isin(["REG", "POST"])) &
                (games["week"] == week) & (games["result"].isna())].sort_values(["gameday", "gametime"])
     ts = _lines_updated_at()
     updated = _et(ts) if ts else "—"
@@ -362,7 +365,7 @@ def _completed_rows(season, week):
     """Completed games: final score + model receipts, graded at the nflverse
     CLOSING line (same standard as Track Record). Badges only where the model
     had a bettable lean (>=2.0 pts), matching the board's star/green rules."""
-    wk = games[(games["season"] == season) & (games["game_type"] == "REG") &
+    wk = games[(games["season"] == season) & (games["game_type"].isin(["REG", "POST"])) &
                (games["week"] == week) & (games["result"].notna())].sort_values(["gameday", "gametime"])
     # honest receipts: each game's model line comes from an Elo that has NOT
     # absorbed that game's own result (one rebuild per distinct gameday)
@@ -421,7 +424,7 @@ if st.sidebar.button("🔄 Refresh live data",
     _board_rows.clear()
     st.rerun()
 
-week_games = games[(games["season"] == season) & (games["game_type"] == "REG") &
+week_games = games[(games["season"] == season) & (games["game_type"].isin(["REG", "POST"])) &
                    (games["week"] == week)].sort_values(["gameday", "gametime"])
 if week_games.empty:
     st.warning("No games found for that week.")
@@ -570,10 +573,11 @@ def journal_page():
                 st.rerun()
 
     with st.expander("➕ Log a bet", expanded=not len(bets)):
-        gs = games[(games["season"] == season) & (games["game_type"] == "REG")].sort_values(["week", "gameday"])
-        labels = [f"{r['away_team']} @ {r['home_team']} (W{int(r['week'])})" for _, r in gs.iterrows()]
+        gs = games[(games["season"] == season) & (games["game_type"].isin(["REG", "POST"]))].sort_values(["week", "gameday"])
+        labels = [f"{r['away_team']} @ {r['home_team']} — {r['game_round'] or 'Week ' + str(int(r['week']))}"
+                  for _, r in gs.iterrows()]
         pick = st.selectbox("Game", labels)
-        glabel = pick.split(" (W")[0]
+        glabel = pick.split(" — ")[0]
         away_t, home_t = glabel.split(" @ ")
         btype = st.selectbox("Bet type", ["spread", "ml", "total"])
         if btype == "total":
@@ -1543,7 +1547,9 @@ def track_record_page():
                "Honest W1-2 record: **3-4 spreads, 9-9 totals**. Pipeline fixed Sep 21 — from "
                "Week 3, every pick logs only against real multi-book lines.")
     _cur_season, _ = dl.current_season_week(games)
-    era = picks[(picks["season"] == _cur_season) & (picks["week"] >= 3)]
+    # regular season only — playoff picks (week >= POST_WEEK_MIN) are segmented below
+    era = picks[(picks["season"] == _cur_season) & (picks["week"] >= 3)
+                & (picks["week"] < dl.POST_WEEK_MIN)]
     st.subheader("🆕 Post-Fix Era (Week 3+)")
     se = tracker.summary(era)
     if se["spread"]["n"] + se["total"]["n"] == 0:
@@ -1567,6 +1573,26 @@ def track_record_page():
     c[2].metric("Profit (flat -110)", f"{profit:+.2f}u")
     c[3].metric("Graded picks", s["spread"]["n"] + s["total"]["n"])
     c[4].metric("Pending", s["pending"])
+
+    # ---- Playoffs: separate segment (Jeff, 2026-11-25) — same 2.0-pt discipline and
+    # books-only logging, but tracked apart so REG receipts stay apples-to-apples.
+    post = picks[(picks["week"] >= dl.POST_WEEK_MIN)]
+    post = post[post["flag"].isna()] if "flag" in post.columns else post
+    st.subheader("🏆 Playoffs (tracked separately)")
+    sp = tracker.summary(post)
+    if sp["spread"]["n"] + sp["total"]["n"] == 0 and sp["pending"] == 0:
+        st.caption("No playoff picks yet — they log here in January with the same rules "
+                   "(edge ≥ 2.0 vs real book lines, graded at close), counted apart from "
+                   "the regular-season record above.")
+    else:
+        cpo = st.columns(5)
+        cpo[0].metric("Sides (at close)", sp["spread"]["record"],
+                      f"{sp['spread']['win_pct']:.1f}%" if sp["spread"]["win_pct"] is not None else "—")
+        cpo[1].metric("Totals (at close)", sp["total"]["record"],
+                      f"{sp['total']['win_pct']:.1f}%" if sp["total"]["win_pct"] is not None else "—")
+        cpo[2].metric("Profit (flat -110)", f"{sp['spread']['profit'] + sp['total']['profit']:+.2f}u")
+        cpo[3].metric("Graded picks", sp["spread"]["n"] + sp["total"]["n"])
+        cpo[4].metric("Pending", sp["pending"])
     # CLV vs closing line — the fast signal. Did the line the model locked (market_val_log,
     # converted to the pick's perspective) beat the number it closed at?
     clvs = []

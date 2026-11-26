@@ -43,7 +43,7 @@ def recap_sections(games, season, journal_user=None):
     """Monday recap: last week's graded model picks + optional user journal.
     Returns (model_sections, user_sections)."""
     import journal
-    done = games[(games.season == season) & games.result.notna() & (games.game_type == "REG")]
+    done = games[(games.season == season) & games.result.notna() & (games.game_type.isin(["REG", "POST"]))]
     if done.empty:
         return [], []
     lw = int(done.week.max())
@@ -183,10 +183,12 @@ def _board_sections(games, wk, season, week, nv):
 def main():
     games = dl.load_games()
     season, week = dl.current_season_week(games)
-    wk = games[(games["season"] == season) & (games["game_type"] == "REG")
+    wk = games[(games["season"] == season) & (games["game_type"].isin(["REG", "POST"]))
                & (games["week"] == week)].sort_values(["gameday", "gametime"])
     if wk.empty:
         return
+    wk_label = (wk["game_round"].iloc[0] if "game_round" in wk.columns
+                and wk["game_round"].ne("").any() else f"Week {week}")
 
     sections = []
 
@@ -325,7 +327,7 @@ def main():
              if e[1] not in old_edges or abs(abs(e[0]) - abs(old_edges[e[1]])) >= 0.5]
     if fresh:
         fresh.sort(reverse=True)
-        sections.append(f"🎯 *MODEL EDGES — Week {week}*\n" + "\n".join(m for _, _, m in fresh[:6]))
+        sections.append(f"🎯 *MODEL EDGES — {wk_label}*\n" + "\n".join(m for _, _, m in fresh[:6]))
     save_snap(SNAP_EDGES, new_edge_snap)
     if tot_hits:
         tot_hits.sort(reverse=True)
@@ -399,9 +401,9 @@ def main():
                 urec = jeff_rec if u["username"] == "jeff" else (
                     recap_sections(games, season, journal_user=u["username"])[1] if is_monday else [])
                 user_full = (f"🏈 *NFL Edge Daily Board* — {today}\n"
-                             f"Week {week} kicks off {kickoff}\n\n"
+                             f"{wk_label} kicks off {kickoff}\n\n"
                              + "\n\n".join(model_rec + urec + sections + board_secs))
-                emailer.send_email(addr, f"🏈 NFL Edge Daily Board — {today} (Week {week})",
+                emailer.send_email(addr, f"🏈 NFL Edge Daily Board — {today} ({wk_label})",
                                    emailer.brief_html(user_full))
             except Exception:
                 continue
@@ -411,7 +413,7 @@ def main():
     # ---- telegram: watchdog only (changes) ----
     if not sections and not (model_rec or jeff_rec):
         return
-    header = f"🏈 *NFL Edge Morning Brief* — {today}\nWeek {week} kicks off {kickoff}\n"
+    header = f"🏈 *NFL Edge Morning Brief* — {today}\n{wk_label} kicks off {kickoff}\n"
     full = header + "\n" + "\n\n".join(model_rec + jeff_rec + sections)
     print(full)
 

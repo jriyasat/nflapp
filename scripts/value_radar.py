@@ -40,7 +40,7 @@ def main():
     games = dl.load_games()
     season, week = dl.current_season_week(games)
     today = pd.Timestamp.now().normalize()
-    wk = games[(games["season"] == season) & (games["game_type"] == "REG")
+    wk = games[(games["season"] == season) & (games["game_type"].isin(["REG", "POST"]))
                & (games["week"] == week) & games["result"].isna()
                & (pd.to_datetime(games["gameday"], errors="coerce") >= today)]
     if wk.empty:
@@ -131,12 +131,14 @@ def main():
     if not hits:
         return
     hits.sort(reverse=True)
-    full = (f"🚨 *VALUE RADAR — Week {week}*\n" + "\n".join(m for _, _, m in hits)
+    wk_label = (wk["game_round"].iloc[0] if "game_round" in wk.columns
+                and wk["game_round"].ne("").any() else f"Week {week}")
+    full = (f"🚨 *VALUE RADAR — {wk_label}*\n" + "\n".join(m for _, _, m in hits)
             + "\n\n_Lines from SGO/ESPN cache — confirm in the app before betting._")
     print(full)
     try:
         from _common import fanout
-        fanout("radar", f"🚨 NFL Edge Value Radar — Week {week}", full)
+        fanout("radar", f"🚨 NFL Edge Value Radar — {wk_label}", full)
     except Exception:
         pass
 

@@ -22,7 +22,7 @@ def log_predictions(games, elo, season, week, books_by_abbr=None, espn_odds=None
     MUST receive the same context the app displays with (books + espn +
     injuries) or the logged model diverges from the shown model."""
     existing = db.existing_pick_keys()
-    wk = games[(games["season"] == season) & (games["game_type"] == "REG")
+    wk = games[(games["season"] == season) & (games["game_type"].isin(["REG", "POST"]))
                & (games["week"] == week)]
     books_by_abbr = books_by_abbr or {}
     espn_odds = espn_odds or {}
@@ -93,7 +93,7 @@ def log_weather_papers(games, season, week, books_by_abbr=None, quiet=True):
     receipts. Graded at close, excluded from the headline record."""
     import weather
     existing = db.existing_pick_keys()
-    wk = games[(games["season"] == season) & (games["game_type"] == "REG")
+    wk = games[(games["season"] == season) & (games["game_type"].isin(["REG", "POST"]))
                & (games["week"] == week)]
     books_by_abbr = books_by_abbr or {}
     now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
@@ -147,6 +147,9 @@ def log_divdog_papers(games, season, week, books_by_abbr=None, quiet=True):
     The short-rest variant is DEAD (25-33%) — do NOT widen this rule."""
     if week < 12:
         return 0
+    # REG-only BY DESIGN: divdog was validated on regular-season weeks 12+
+    # (normal-rest division dogs). Playoff division games are a different
+    # rest/venue structure — never extend this filter without a new backtest.
     existing = db.existing_pick_keys()
     wk = games[(games["season"] == season) & (games["game_type"] == "REG")
                & (games["week"] == week)]
@@ -190,7 +193,7 @@ def grade_predictions(games):
         season, week, label = int(p["season"]), int(p["week"]), p["game"]
         away, home = label.split(" @ ")
         m = games[(games["season"] == season) & (games["week"] == week) &
-                  (games["game_type"] == "REG") &
+                  (games["game_type"].isin(["REG", "POST"])) &
                   (games["away_team"] == away) & (games["home_team"] == home)]
         if m.empty or pd.isna(m.iloc[0]["result"]):
             continue

@@ -45,6 +45,15 @@ def _fresh(path, max_age_sec):
 
 _MEMO = {}
 
+# nflverse marks playoff games as WC/DIV/CON/SB; the app standardizes on POST.
+POST_GAME_TYPES = {"WC": "POST", "DIV": "POST", "CON": "POST", "SB": "POST"}
+POST_ROUND_NAMES = {"WC": "Wild Card", "DIV": "Divisional", "CON": "Conference",
+                    "SB": "Super Bowl"}
+# App launched with the 2026 season (17-game era): playoff weeks are always 19-22,
+# so picks/results with week >= 19 are postseason (pre-2021 WC was week 18 — never
+# had picks logged). Used to segment Track Record receipts.
+POST_WEEK_MIN = 19
+
 
 def load_games():
     """Full nflverse schedule/results table, cached 12h on disk; memoized in
@@ -119,6 +128,10 @@ def load_games():
     # nflverse calls the Rams "LA"; the rest of the app (divisions, logos, ESPN) uses "LAR".
     # Without this the Rams silently miss standings, rankings, injury adj, and logos.
     df[["home_team", "away_team"]] = df[["home_team", "away_team"]].replace({"LA": "LAR"})
+    # playoffs: WC/DIV/CON/SB → POST (round preserved in game_round for labels).
+    # Makes the isin(["REG","POST"]) filters (Elo, form) work as designed.
+    df["game_round"] = df["game_type"].map(POST_ROUND_NAMES).fillna("")
+    df["game_type"] = df["game_type"].replace(POST_GAME_TYPES)
     for col in ["away_score", "home_score", "spread_line", "total_line",
                 "away_rest", "home_rest", "away_moneyline", "home_moneyline"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -137,13 +150,16 @@ def load_games():
 
 
 def current_season_week(df):
-    """Next unplayed REG week (falls back to latest played)."""
-    reg = df[df["game_type"] == "REG"]
-    unplayed = reg[reg["result"].isna()].sort_values(["season", "week"])
+    """Next unplayed week, REG then POST (falls back to latest played).
+
+    Playoff weeks number 19-22 within the same season, so plain (season, week)
+    ordering advances Wild Card → Super Bowl automatically once REG is done."""
+    g = df[df["game_type"].isin(["REG", "POST"])]
+    unplayed = g[g["result"].isna()].sort_values(["season", "week"])
     if len(unplayed):
-        g = unplayed.iloc[0]
-        return int(g["season"]), int(g["week"])
-    last = reg.sort_values(["season", "week"]).iloc[-1]
+        r = unplayed.iloc[0]
+        return int(r["season"]), int(r["week"])
+    last = g.sort_values(["season", "week"]).iloc[-1]
     return int(last["season"]), int(last["week"])
 
 
